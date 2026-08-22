@@ -41,6 +41,14 @@ export function distanceMetres(a, b) {
   return 2 * earthRadiusMetres * Math.asin(Math.sqrt(haversine));
 }
 
+export function directSoundMetrics(source, listener) {
+  const pathMetres = distanceMetres(source, listener);
+  return {
+    pathMetres,
+    propagationSeconds: pathMetres / SPEED_OF_SOUND_METRES_PER_SECOND
+  };
+}
+
 export function reflectionMetrics(source, listener, reflector) {
   const sourceLegMetres = distanceMetres(source, reflector);
   const listenerLegMetres = distanceMetres(listener, reflector);

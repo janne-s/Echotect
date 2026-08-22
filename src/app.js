@@ -1,4 +1,4 @@
-import { parseCoordinates, reflectionMetrics } from './geo.js';
+import { directSoundMetrics, parseCoordinates, reflectionMetrics } from './geo.js';
 
 const initial = {
   source: { latitude: 60.16955, longitude: 24.9369 },
@@ -77,9 +77,22 @@ function routeGeoJson() {
   };
 }
 
+function directRouteGeoJson() {
+  return {
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'LineString', coordinates: [
+      [state.source.longitude, state.source.latitude],
+      [state.listener.longitude, state.listener.latitude]
+    ] }
+  };
+}
+
 function syncRoutes() {
   const source = map.getSource('routes');
   if (source) source.setData(routeGeoJson());
+  const directSource = map.getSource('direct-route');
+  if (directSource) directSource.setData(directRouteGeoJson());
 }
 
 function formatDistance(metres) {
@@ -89,6 +102,8 @@ function formatDistance(metres) {
 function render() {
   $('#source-coordinates').textContent = coordinateText(state.source);
   $('#listener-coordinates').textContent = coordinateText(state.listener);
+  const direct = directSoundMetrics(state.source, state.listener);
+  $('#direct-sound-metrics').textContent = `${formatDistance(direct.pathMetres)} · ${direct.propagationSeconds.toFixed(3)} s`;
   const list = $('#reflection-list');
   list.replaceChildren();
   $('#empty-reflections').hidden = state.reflectors.length > 0;
@@ -112,6 +127,8 @@ function render() {
 }
 
 map.on('load', () => {
+  map.addSource('direct-route', { type: 'geojson', data: directRouteGeoJson() });
+  map.addLayer({ id: 'direct-route', type: 'line', source: 'direct-route', paint: { 'line-color': '#ddd', 'line-width': 2, 'line-opacity': .7, 'line-dasharray': [3, 2] } });
   map.addSource('routes', { type: 'geojson', data: routeGeoJson() });
   map.addLayer({ id: 'routes', type: 'line', source: 'routes', paint: { 'line-color': '#ff69b4', 'line-width': 3, 'line-opacity': .9 } });
   syncMarkers(); render();
@@ -200,13 +217,17 @@ $('#play-button').addEventListener('click', async () => {
   await context.resume();
   const buffer = importedAudioBuffer ?? createHandclap(context);
   const now = context.currentTime + .03;
+  const direct = directSoundMetrics(state.source, state.listener);
   playBufferAt(context, buffer, now, .8);
+  const directAttenuation = Math.max(.18, Math.min(.72, 140 / Math.max(140, direct.pathMetres)));
+  playBufferAt(context, buffer, now + direct.propagationSeconds, directAttenuation);
   state.reflectors.forEach(reflector => {
     const { propagationSeconds, pathMetres } = reflectionMetrics(state.source, state.listener, reflector);
     const attenuation = Math.max(.12, Math.min(.65, 140 / Math.max(140, pathMetres)));
     playBufferAt(context, buffer, now + propagationSeconds, attenuation);
   });
-  $('#status').textContent = state.reflectors.length ? `Playing ${state.reflectors.length} ${state.reflectors.length === 1 ? 'reflection' : 'reflections'}.` : 'Playing the dry sound. Add a reflector to hear an echo.';
+  const reflectionLabel = `${state.reflectors.length} ${state.reflectors.length === 1 ? 'reflection' : 'reflections'}`;
+  $('#status').textContent = `Playing source onset, direct arrival, and ${reflectionLabel}.`;
 });
 
 $('#audio-file').addEventListener('change', async event => {

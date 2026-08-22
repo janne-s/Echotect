@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { distanceMetres, parseCoordinates, reflectionMetrics } from '../src/geo.js';
+import { directSoundMetrics, distanceMetres, parseCoordinates, reflectionMetrics } from '../src/geo.js';
 
 test('parses pasted decimal coordinates', () => {
   assert.deepEqual(parseCoordinates('60.1699, 24.9384'), { latitude: 60.1699, longitude: 24.9384 });
@@ -28,6 +28,14 @@ test('343 metre reflected path is approximately one second', () => {
   const listener = { latitude: 0, longitude: 0 };
   const reflector = { latitude: 0, longitude: 0.00154245 };
   const metrics = reflectionMetrics(source, listener, reflector);
+  assert.ok(Math.abs(metrics.pathMetres - 343) < 0.5);
+  assert.ok(Math.abs(metrics.propagationSeconds - 1) < 0.002);
+});
+
+test('343 metre direct path arrives after approximately one second', () => {
+  const source = { latitude: 0, longitude: 0 };
+  const listener = { latitude: 0, longitude: 0.0030849 };
+  const metrics = directSoundMetrics(source, listener);
   assert.ok(Math.abs(metrics.pathMetres - 343) < 0.5);
   assert.ok(Math.abs(metrics.propagationSeconds - 1) < 0.002);
 });

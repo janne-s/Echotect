@@ -48,6 +48,8 @@ button:hover, button:focus-visible { border-color: var(--accent); }
 .points dt, .reflection h3 { display: inline-flex; align-items: center; gap: 7px; }
 dt { color: var(--muted); }
 dd { margin: 0; font: .76rem/1.5 ui-monospace, monospace; }
+.direct-path { display: flex; justify-content: space-between; gap: 10px; margin: 0 0 12px; padding: 7px 9px; border: 1px dashed #555; border-radius: 4px; color: var(--muted); font-size: .74rem; }
+.direct-path strong { color: var(--ink); font: 600 .74rem/1.4 ui-monospace, monospace; }
 .reflection-list { display: grid; gap: 6px; }
 .reflection { padding: 9px; border: 1px solid var(--line); border-radius: 4px; background: #1d1d1d; }
 .reflection header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
