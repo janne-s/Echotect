@@ -28,6 +28,10 @@
       <div class="map-tools" aria-label="Map tools">
         <button type="button" data-tool="source"><span class="tool-symbol symbol-source" aria-hidden="true"></span>Set source</button>
         <button type="button" data-tool="listener"><span class="tool-symbol symbol-listener" aria-hidden="true"></span>Set listener</button>
+        <button id="link-points" class="link-points" type="button" aria-pressed="false">
+          <span class="link-symbol" aria-hidden="true">↔</span>
+          <span class="link-label">Link source + listener</span>
+        </button>
         <button type="button" data-tool="reflector"><span class="tool-symbol symbol-reflector" aria-hidden="true"></span>Add reflector</button>
       </div>
       <p id="map-hint" class="map-hint">Choose a tool, then select a location on the map.</p>
@@ -45,10 +49,6 @@
           <div><dt><span class="tool-symbol symbol-source" aria-hidden="true"></span>Source</dt><dd id="source-coordinates">–</dd></div>
           <div><dt><span class="tool-symbol symbol-listener" aria-hidden="true"></span>Listener</dt><dd id="listener-coordinates">–</dd></div>
         </dl>
-        <button id="link-points" class="link-points" type="button" aria-pressed="false">
-          <span class="link-symbol" aria-hidden="true">↔</span>
-          <span class="link-label">Co-locate source and listener</span>
-        </button>
         <div class="direct-path">
           <span>Direct sound</span>
           <strong id="direct-sound-metrics">–</strong>

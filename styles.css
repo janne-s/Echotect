@@ -46,9 +46,9 @@ button:hover, button:focus-visible { border-color: var(--accent); }
 .points dt, .reflection h3 { display: inline-flex; align-items: center; gap: 7px; }
 dt { color: var(--muted); }
 dd { margin: 0; font: .76rem/1.5 ui-monospace, monospace; }
-.link-points { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; margin: 0 0 8px; color: var(--muted); font-size: .72rem; }
-.link-points[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: #24151d; }
-.link-symbol { font: 700 .9rem/1 ui-monospace, monospace; }
+.link-points { color: var(--accent); }
+.link-points[aria-pressed="true"] { border-color: var(--accent); color: #111; background: var(--accent); }
+.link-symbol { font: 800 1rem/1 ui-monospace, monospace; }
 .direct-path { display: flex; justify-content: space-between; gap: 10px; margin: 0 0 12px; padding: 7px 9px; border: 1px dashed #555; border-radius: 4px; color: var(--muted); font-size: .74rem; }
 .direct-path strong { color: var(--ink); font: 600 .74rem/1.4 ui-monospace, monospace; }
 .reflection-list { display: grid; gap: 6px; }

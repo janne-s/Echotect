@@ -114,7 +114,7 @@ function render() {
   const direct = directSoundMetrics(state.source, state.listener);
   $('#direct-sound-metrics').textContent = state.pointsLinked ? 'Co-located · no separate arrival' : `${formatDistance(direct.pathMetres)} · ${direct.propagationSeconds.toFixed(3)} s`;
   $('#link-points').setAttribute('aria-pressed', String(state.pointsLinked));
-  $('.link-label').textContent = state.pointsLinked ? 'Separate source and listener' : 'Co-locate source and listener';
+  $('.link-label').textContent = state.pointsLinked ? 'Separate source + listener' : 'Link source + listener';
   const list = $('#reflection-list');
   list.replaceChildren();
   $('#empty-reflections').hidden = state.reflectors.length > 0;
