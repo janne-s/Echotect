@@ -20,7 +20,7 @@ versioned JSON Space file and is optional for browser use.
 - versioned JSON Space import and export
 
 No backend, database, account system, or secret client-side API key is required
-for the MVP. All deployable application files belong in this repository.
+for the current version. All deployable application files belong here.
 
 ## Development
 
@@ -33,5 +33,7 @@ references should be relative rather than rooted at `/`.
 
 ## Status
 
-Project foundation and design phase. The browser application has not yet been
-implemented.
+The first complete browser version provides the map workspace, place and pasted
+coordinate search, editable Source/Listener/Reflector points, distance and
+propagation-time display, and Web Audio preview. Space file exchange and Max for
+Live support are planned additions to later complete versions.

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Echotect muuttaa todellisen maailman karttageometrian kuultaviksi kaiuiksi.">
+  <title>Echotect</title>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://tile.openstreetmap.org">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">GEOGRAPHIC ECHO DESIGN</p>
+      <h1>Echotect</h1>
+    </div>
+    <form id="search-form" class="search" role="search">
+      <label class="sr-only" for="location-input">Hae paikka tai syötä koordinaatit</label>
+      <input id="location-input" type="search" placeholder="Paikka, 60.1699, 24.9384 tai Maps-linkki" autocomplete="off">
+      <button type="submit">Hae</button>
+    </form>
+  </header>
+
+  <main class="workspace">
+    <section class="map-panel" aria-label="Kartta">
+      <div id="map"></div>
+      <div class="map-tools" aria-label="Karttatyökalut">
+        <button type="button" data-tool="source">Aseta source</button>
+        <button type="button" data-tool="listener">Aseta listener</button>
+        <button type="button" data-tool="reflector">Lisää reflector</button>
+      </div>
+      <p id="map-hint" class="map-hint">Valitse työkalu ja osoita paikka kartalta.</p>
+    </section>
+
+    <aside class="side-panel">
+      <section>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">SPACE</p>
+            <h2>Reflection field</h2>
+          </div>
+          <button id="clear-reflectors" class="text-button" type="button">Tyhjennä</button>
+        </div>
+        <dl class="points">
+          <div><dt>Source</dt><dd id="source-coordinates">–</dd></div>
+          <div><dt>Listener</dt><dd id="listener-coordinates">–</dd></div>
+        </dl>
+        <div id="reflection-list" class="reflection-list"></div>
+        <p id="empty-reflections" class="empty-state">Lisää kartalle vähintään yksi reflector nähdäksesi etäisyydet ja ajat.</p>
+      </section>
+
+      <section class="audio-section">
+        <p class="eyebrow">BROWSER AUDIO</p>
+        <h2>Kuuntele geometria</h2>
+        <label class="file-picker">
+          <span>Oma ääni</span>
+          <input id="audio-file" type="file" accept="audio/*">
+        </label>
+        <p id="sound-name" class="sound-name">Ääni: Echotect handclap</p>
+        <div class="audio-actions">
+          <button id="play-button" class="primary" type="button">Soita impulssi</button>
+          <button id="default-sound" type="button">Palauta handclap</button>
+        </div>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </section>
+    </aside>
+  </main>
+
+  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
