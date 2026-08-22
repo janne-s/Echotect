@@ -72,7 +72,11 @@ dd { margin: 0; font: .76rem/1.5 ui-monospace, monospace; }
 .marker { width: 22px; height: 22px; border: 3px solid #111; border-radius: 50%; box-shadow: 0 2px 8px #0008; }
 .marker-source { background: var(--accent); }
 .marker-listener { border-color: #eee; background: #111; }
-.marker-reflector { border-radius: 2px; background: #777; transform: rotate(45deg); }
+.marker-reflector {
+  display: grid; place-items: center; border: 0; border-radius: 0;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  background: #777; color: #111; font: 800 10px/1 ui-monospace, monospace;
+}
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
 @media (max-width: 780px) {

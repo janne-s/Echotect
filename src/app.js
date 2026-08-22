@@ -34,14 +34,19 @@ const $ = selector => document.querySelector(selector);
 const coordinateText = point => `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}`;
 const pointFromLngLat = lngLat => ({ latitude: lngLat.lat, longitude: lngLat.lng });
 
-function markerElement(type) {
+function markerElement(type, label = '') {
   const element = document.createElement('div');
   element.className = `marker marker-${type}`;
+  if (label) {
+    element.textContent = label;
+    element.setAttribute('aria-label', `Reflector ${label}`);
+    element.title = `Reflector ${label}`;
+  }
   return element;
 }
 
-function createMarker(id, type, point, onMove) {
-  const marker = new maplibregl.Marker({ element: markerElement(type), draggable: true })
+function createMarker(id, type, point, onMove, label) {
+  const marker = new maplibregl.Marker({ element: markerElement(type, label), draggable: true })
     .setLngLat([point.longitude, point.latitude]).addTo(map);
   const updatePosition = () => onMove(pointFromLngLat(marker.getLngLat()));
   marker.on('drag', updatePosition);
@@ -54,9 +59,9 @@ function syncMarkers() {
   markers.clear();
   createMarker('source', 'source', state.source, point => { state.source = point; render(); });
   createMarker('listener', 'listener', state.listener, point => { state.listener = point; render(); });
-  state.reflectors.forEach(reflector => createMarker(reflector.id, 'reflector', reflector, point => {
+  state.reflectors.forEach((reflector, index) => createMarker(reflector.id, 'reflector', reflector, point => {
     Object.assign(reflector, point); render();
-  }));
+  }, String(index + 1)));
 }
 
 function routeGeoJson() {
