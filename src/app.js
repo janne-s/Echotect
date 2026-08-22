@@ -40,10 +40,12 @@ function markerElement(type) {
   return element;
 }
 
-function createMarker(id, type, point, onDrag) {
+function createMarker(id, type, point, onMove) {
   const marker = new maplibregl.Marker({ element: markerElement(type), draggable: true })
     .setLngLat([point.longitude, point.latitude]).addTo(map);
-  marker.on('dragend', () => onDrag(pointFromLngLat(marker.getLngLat())));
+  const updatePosition = () => onMove(pointFromLngLat(marker.getLngLat()));
+  marker.on('drag', updatePosition);
+  marker.on('dragend', updatePosition);
   markers.set(id, marker);
 }
 
@@ -89,7 +91,7 @@ function render() {
     const metrics = reflectionMetrics(state.source, state.listener, reflector);
     const card = document.createElement('article');
     card.className = 'reflection';
-    card.innerHTML = `<header><h3>Reflector ${index + 1}</h3><button type="button" aria-label="Remove reflector ${index + 1}">×</button></header>
+    card.innerHTML = `<header><h3><span class="tool-symbol symbol-reflector" aria-hidden="true"></span>Reflector ${index + 1}</h3><button type="button" aria-label="Remove reflector ${index + 1}">×</button></header>
       <div class="metrics">
         <div class="metric"><span>Listener → reflector</span><strong>${formatDistance(metrics.listenerLegMetres)}</strong></div>
         <div class="metric"><span>Reflection delay</span><strong>${metrics.propagationSeconds.toFixed(3)} s</strong></div>

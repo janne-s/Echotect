@@ -27,9 +27,9 @@
     <section class="map-panel" aria-label="Map">
       <div id="map"></div>
       <div class="map-tools" aria-label="Map tools">
-        <button type="button" data-tool="source">Set source</button>
-        <button type="button" data-tool="listener">Set listener</button>
-        <button type="button" data-tool="reflector">Add reflector</button>
+        <button type="button" data-tool="source"><span class="tool-symbol symbol-source" aria-hidden="true"></span>Set source</button>
+        <button type="button" data-tool="listener"><span class="tool-symbol symbol-listener" aria-hidden="true"></span>Set listener</button>
+        <button type="button" data-tool="reflector"><span class="tool-symbol symbol-reflector" aria-hidden="true"></span>Add reflector</button>
       </div>
       <p id="map-hint" class="map-hint">Choose a tool, then select a location on the map.</p>
     </section>
@@ -44,8 +44,8 @@
           <button id="clear-reflectors" class="text-button" type="button">Clear</button>
         </div>
         <dl class="points">
-          <div><dt>Source</dt><dd id="source-coordinates">–</dd></div>
-          <div><dt>Listener</dt><dd id="listener-coordinates">–</dd></div>
+          <div><dt><span class="tool-symbol symbol-source" aria-hidden="true"></span>Source</dt><dd id="source-coordinates">–</dd></div>
+          <div><dt><span class="tool-symbol symbol-listener" aria-hidden="true"></span>Listener</dt><dd id="listener-coordinates">–</dd></div>
         </dl>
         <div id="reflection-list" class="reflection-list"></div>
         <p id="empty-reflections" class="empty-state">Add at least one reflector to see its distances and propagation time.</p>
