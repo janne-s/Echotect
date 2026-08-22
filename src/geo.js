@@ -49,6 +49,10 @@ export function directSoundMetrics(source, listener) {
   };
 }
 
+export function hasDistinctDirectArrival(source, listener) {
+  return distanceMetres(source, listener) > 0.01;
+}
+
 export function reflectionMetrics(source, listener, reflector) {
   const sourceLegMetres = distanceMetres(source, reflector);
   const listenerLegMetres = distanceMetres(listener, reflector);

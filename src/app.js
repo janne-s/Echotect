@@ -1,4 +1,4 @@
-import { directSoundMetrics, parseCoordinates, reflectionMetrics } from './geo.js';
+import { directSoundMetrics, hasDistinctDirectArrival, parseCoordinates, reflectionMetrics } from './geo.js';
 
 const initial = {
   source: { latitude: 60.16955, longitude: 24.9369 },
@@ -6,6 +6,7 @@ const initial = {
   reflectors: [{ id: crypto.randomUUID(), latitude: 60.1721, longitude: 24.9384 }]
 };
 const state = structuredClone(initial);
+state.pointsLinked = false;
 let activeTool = null;
 let audioContext;
 let importedAudioBuffer = null;
@@ -57,8 +58,16 @@ function createMarker(id, type, point, onMove, label) {
 function syncMarkers() {
   markers.forEach(marker => marker.remove());
   markers.clear();
-  createMarker('source', 'source', state.source, point => { state.source = point; render(); });
-  createMarker('listener', 'listener', state.listener, point => { state.listener = point; render(); });
+  if (state.pointsLinked) {
+    createMarker('combined', 'combined', state.source, point => {
+      state.source = point;
+      state.listener = { ...point };
+      render();
+    });
+  } else {
+    createMarker('source', 'source', state.source, point => { state.source = point; render(); });
+    createMarker('listener', 'listener', state.listener, point => { state.listener = point; render(); });
+  }
   state.reflectors.forEach((reflector, index) => createMarker(reflector.id, 'reflector', reflector, point => {
     Object.assign(reflector, point); render();
   }, String(index + 1)));
@@ -103,7 +112,9 @@ function render() {
   $('#source-coordinates').textContent = coordinateText(state.source);
   $('#listener-coordinates').textContent = coordinateText(state.listener);
   const direct = directSoundMetrics(state.source, state.listener);
-  $('#direct-sound-metrics').textContent = `${formatDistance(direct.pathMetres)} · ${direct.propagationSeconds.toFixed(3)} s`;
+  $('#direct-sound-metrics').textContent = state.pointsLinked ? 'Co-located · no separate arrival' : `${formatDistance(direct.pathMetres)} · ${direct.propagationSeconds.toFixed(3)} s`;
+  $('#link-points').setAttribute('aria-pressed', String(state.pointsLinked));
+  $('.link-label').textContent = state.pointsLinked ? 'Separate source and listener' : 'Co-locate source and listener';
   const list = $('#reflection-list');
   list.replaceChildren();
   $('#empty-reflections').hidden = state.reflectors.length > 0;
@@ -137,8 +148,14 @@ map.on('load', () => {
 map.on('click', event => {
   if (!activeTool) return;
   const point = pointFromLngLat(event.lngLat);
-  if (activeTool === 'source') state.source = point;
-  if (activeTool === 'listener') state.listener = point;
+  if (activeTool === 'source') {
+    state.source = point;
+    if (state.pointsLinked) state.listener = { ...point };
+  }
+  if (activeTool === 'listener') {
+    state.listener = point;
+    if (state.pointsLinked) state.source = { ...point };
+  }
   if (activeTool === 'reflector') state.reflectors.push({ id: crypto.randomUUID(), ...point });
   syncMarkers(); render();
 });
@@ -150,6 +167,13 @@ document.querySelectorAll('[data-tool]').forEach(button => button.addEventListen
 }));
 
 $('#clear-reflectors').addEventListener('click', () => { state.reflectors = []; syncMarkers(); render(); });
+
+$('#link-points').addEventListener('click', () => {
+  state.pointsLinked = !state.pointsLinked;
+  if (state.pointsLinked) state.listener = { ...state.source };
+  syncMarkers();
+  render();
+});
 
 async function searchLocation(query) {
   const parsed = parseCoordinates(query);
@@ -219,15 +243,19 @@ $('#play-button').addEventListener('click', async () => {
   const now = context.currentTime + .03;
   const direct = directSoundMetrics(state.source, state.listener);
   playBufferAt(context, buffer, now, .8);
-  const directAttenuation = Math.max(.18, Math.min(.72, 140 / Math.max(140, direct.pathMetres)));
-  playBufferAt(context, buffer, now + direct.propagationSeconds, directAttenuation);
+  if (hasDistinctDirectArrival(state.source, state.listener)) {
+    const directAttenuation = Math.max(.18, Math.min(.72, 140 / Math.max(140, direct.pathMetres)));
+    playBufferAt(context, buffer, now + direct.propagationSeconds, directAttenuation);
+  }
   state.reflectors.forEach(reflector => {
     const { propagationSeconds, pathMetres } = reflectionMetrics(state.source, state.listener, reflector);
     const attenuation = Math.max(.12, Math.min(.65, 140 / Math.max(140, pathMetres)));
     playBufferAt(context, buffer, now + propagationSeconds, attenuation);
   });
   const reflectionLabel = `${state.reflectors.length} ${state.reflectors.length === 1 ? 'reflection' : 'reflections'}`;
-  $('#status').textContent = `Playing source onset, direct arrival, and ${reflectionLabel}.`;
+  $('#status').textContent = hasDistinctDirectArrival(state.source, state.listener)
+    ? `Playing source onset, direct arrival, and ${reflectionLabel}.`
+    : `Playing source onset and ${reflectionLabel}; source and listener are co-located.`;
 });
 
 $('#audio-file').addEventListener('change', async event => {

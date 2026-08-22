@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { directSoundMetrics, distanceMetres, parseCoordinates, reflectionMetrics } from '../src/geo.js';
+import { directSoundMetrics, distanceMetres, hasDistinctDirectArrival, parseCoordinates, reflectionMetrics } from '../src/geo.js';
 
 test('parses pasted decimal coordinates', () => {
   assert.deepEqual(parseCoordinates('60.1699, 24.9384'), { latitude: 60.1699, longitude: 24.9384 });
@@ -38,4 +38,9 @@ test('343 metre direct path arrives after approximately one second', () => {
   const metrics = directSoundMetrics(source, listener);
   assert.ok(Math.abs(metrics.pathMetres - 343) < 0.5);
   assert.ok(Math.abs(metrics.propagationSeconds - 1) < 0.002);
+});
+
+test('co-located source and listener have no distinct direct arrival', () => {
+  const point = { latitude: 60.1699, longitude: 24.9384 };
+  assert.equal(hasDistinctDirectArrival(point, point), false);
 });
