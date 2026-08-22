@@ -163,7 +163,6 @@ map.on('click', event => {
 document.querySelectorAll('[data-tool]').forEach(button => button.addEventListener('click', () => {
   activeTool = activeTool === button.dataset.tool ? null : button.dataset.tool;
   document.querySelectorAll('[data-tool]').forEach(item => item.classList.toggle('active', item.dataset.tool === activeTool));
-  $('#map-hint').textContent = activeTool ? `Select the ${activeTool} location on the map.` : 'Choose a tool, then select a location on the map.';
 }));
 
 $('#clear-reflectors').addEventListener('click', () => { state.reflectors = []; syncMarkers(); render(); });

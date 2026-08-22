@@ -35,8 +35,6 @@ button:hover, button:focus-visible { border-color: var(--accent); }
 .map-tools button.active { color: #111; background: var(--accent); border-color: var(--accent); }
 .map-tools button.active .tool-symbol { border-color: #111; }
 .map-tools button.active .symbol-source { background: #111; }
-.map-hint { position: absolute; z-index: 2; left: 9px; bottom: 14px; margin: 0; padding: 6px 8px; border-radius: 4px; color: #ddd; background: #101010dd; font-size: .72rem; pointer-events: none; }
-
 .side-panel { overflow-y: auto; border-left: 1px solid var(--line); background: var(--panel); }
 .side-panel section { padding: 14px; border-bottom: 1px solid var(--line); }
 .section-heading { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
