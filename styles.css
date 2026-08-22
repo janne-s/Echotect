@@ -21,8 +21,6 @@ button { cursor: pointer; }
 h1, h2, p { margin-top: 0; }
 h1 { margin-bottom: 0; font-size: clamp(1.35rem, 2.5vw, 1.8rem); letter-spacing: -.05em; }
 h2 { margin-bottom: 11px; font-size: 1rem; font-weight: 600; }
-.eyebrow { margin-bottom: 2px; color: var(--accent); font: 700 .6rem/1.2 ui-monospace, monospace; letter-spacing: .14em; }
-
 .search { display: flex; width: min(680px, 66vw); }
 .search input { flex: 1; min-width: 120px; border: 1px solid var(--line); border-right: 0; border-radius: 4px 0 0 4px; padding: 8px 10px; background: #202020; color: var(--ink); }
 .search button, button { border: 1px solid var(--line); border-radius: 4px; padding: 7px 10px; background: #272727; color: var(--ink); }
