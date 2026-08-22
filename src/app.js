@@ -84,12 +84,12 @@ function render() {
     const metrics = reflectionMetrics(state.source, state.listener, reflector);
     const card = document.createElement('article');
     card.className = 'reflection';
-    card.innerHTML = `<header><h3>Reflector ${index + 1}</h3><button type="button" aria-label="Poista reflector ${index + 1}">×</button></header>
+    card.innerHTML = `<header><h3>Reflector ${index + 1}</h3><button type="button" aria-label="Remove reflector ${index + 1}">×</button></header>
       <div class="metrics">
         <div class="metric"><span>Listener → reflector</span><strong>${formatDistance(metrics.listenerLegMetres)}</strong></div>
-        <div class="metric"><span>Heijastusviive</span><strong>${metrics.propagationSeconds.toFixed(3)} s</strong></div>
+        <div class="metric"><span>Reflection delay</span><strong>${metrics.propagationSeconds.toFixed(3)} s</strong></div>
       </div>
-      <p class="route">Koko reitti ${formatDistance(metrics.pathMetres)} · ${coordinateText(reflector)}</p>`;
+      <p class="route">Full path ${formatDistance(metrics.pathMetres)} · ${coordinateText(reflector)}</p>`;
     card.querySelector('button').addEventListener('click', () => {
       state.reflectors = state.reflectors.filter(item => item.id !== reflector.id);
       syncMarkers(); render();
@@ -117,7 +117,7 @@ map.on('click', event => {
 document.querySelectorAll('[data-tool]').forEach(button => button.addEventListener('click', () => {
   activeTool = activeTool === button.dataset.tool ? null : button.dataset.tool;
   document.querySelectorAll('[data-tool]').forEach(item => item.classList.toggle('active', item.dataset.tool === activeTool));
-  $('#map-hint').textContent = activeTool ? `Osoita kartalta: ${activeTool}` : 'Valitse työkalu ja osoita paikka kartalta.';
+  $('#map-hint').textContent = activeTool ? `Select the ${activeTool} location on the map.` : 'Choose a tool, then select a location on the map.';
 }));
 
 $('#clear-reflectors').addEventListener('click', () => { state.reflectors = []; syncMarkers(); render(); });
@@ -132,9 +132,9 @@ async function searchLocation(query) {
   if (wait) await new Promise(resolve => setTimeout(resolve, wait));
   lastSearchAt = Date.now();
   const url = new URL('https://nominatim.openstreetmap.org/search');
-  url.search = new URLSearchParams({ q: query, format: 'jsonv2', limit: '1' });
+  url.search = new URLSearchParams({ q: query, format: 'jsonv2', limit: '1', 'accept-language': 'en' });
   const response = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!response.ok) throw new Error('Paikkahaku ei vastannut.');
+  if (!response.ok) throw new Error('The place search service did not respond.');
   const [result] = await response.json();
   if (!result) return null;
   const location = { latitude: Number(result.lat), longitude: Number(result.lon), label: result.display_name };
@@ -146,12 +146,12 @@ $('#search-form').addEventListener('submit', async event => {
   event.preventDefault();
   const query = $('#location-input').value.trim();
   if (!query) return;
-  $('#status').textContent = 'Haetaan paikkaa…';
+  $('#status').textContent = 'Searching for the place…';
   try {
     const location = await searchLocation(query);
-    if (!location) { $('#status').textContent = 'Paikkaa ei löytynyt.'; return; }
+    if (!location) { $('#status').textContent = 'No matching place was found.'; return; }
     map.flyTo({ center: [location.longitude, location.latitude], zoom: 16 });
-    $('#status').textContent = `Kartta siirretty: ${location.label}`;
+    $('#status').textContent = `Map moved to: ${location.label}`;
   } catch (error) { $('#status').textContent = error.message; }
 });
 
@@ -194,7 +194,7 @@ $('#play-button').addEventListener('click', async () => {
     const attenuation = Math.max(.12, Math.min(.65, 140 / Math.max(140, pathMetres)));
     playBufferAt(context, buffer, now + propagationSeconds, attenuation);
   });
-  $('#status').textContent = state.reflectors.length ? `Soitetaan ${state.reflectors.length} heijastusta.` : 'Soitetaan kuiva ääni; lisää reflector kuullaksesi kaiun.';
+  $('#status').textContent = state.reflectors.length ? `Playing ${state.reflectors.length} ${state.reflectors.length === 1 ? 'reflection' : 'reflections'}.` : 'Playing the dry sound. Add a reflector to hear an echo.';
 });
 
 $('#audio-file').addEventListener('change', async event => {
@@ -203,17 +203,17 @@ $('#audio-file').addEventListener('change', async event => {
   try {
     const context = getAudioContext();
     importedAudioBuffer = await context.decodeAudioData(await file.arrayBuffer());
-    $('#sound-name').textContent = `Ääni: ${file.name}`;
-    $('#status').textContent = 'Oma ääni on valmis soitettavaksi.';
+    $('#sound-name').textContent = `Sound: ${file.name}`;
+    $('#status').textContent = 'Your sound is ready to play.';
   } catch {
     importedAudioBuffer = null;
-    $('#status').textContent = 'Tätä äänitiedostoa ei voitu avata.';
+    $('#status').textContent = 'This audio file could not be opened.';
   }
 });
 
 $('#default-sound').addEventListener('click', () => {
   importedAudioBuffer = null;
   $('#audio-file').value = '';
-  $('#sound-name').textContent = 'Ääni: Echotect handclap';
-  $('#status').textContent = 'Oletusääni palautettu.';
+  $('#sound-name').textContent = 'Sound: Echotect handclap';
+  $('#status').textContent = 'The default handclap is active.';
 });

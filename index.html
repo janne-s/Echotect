@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fi">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -17,21 +17,21 @@
       <h1>Echotect</h1>
     </div>
     <form id="search-form" class="search" role="search">
-      <label class="sr-only" for="location-input">Hae paikka tai syötä koordinaatit</label>
-      <input id="location-input" type="search" placeholder="Paikka, 60.1699, 24.9384 tai Maps-linkki" autocomplete="off">
-      <button type="submit">Hae</button>
+      <label class="sr-only" for="location-input">Search for a place or enter coordinates</label>
+      <input id="location-input" type="search" placeholder="Place, 60.1699, 24.9384, or Maps link" autocomplete="off">
+      <button type="submit">Search</button>
     </form>
   </header>
 
   <main class="workspace">
-    <section class="map-panel" aria-label="Kartta">
+    <section class="map-panel" aria-label="Map">
       <div id="map"></div>
-      <div class="map-tools" aria-label="Karttatyökalut">
-        <button type="button" data-tool="source">Aseta source</button>
-        <button type="button" data-tool="listener">Aseta listener</button>
-        <button type="button" data-tool="reflector">Lisää reflector</button>
+      <div class="map-tools" aria-label="Map tools">
+        <button type="button" data-tool="source">Set source</button>
+        <button type="button" data-tool="listener">Set listener</button>
+        <button type="button" data-tool="reflector">Add reflector</button>
       </div>
-      <p id="map-hint" class="map-hint">Valitse työkalu ja osoita paikka kartalta.</p>
+      <p id="map-hint" class="map-hint">Choose a tool, then select a location on the map.</p>
     </section>
 
     <aside class="side-panel">
@@ -41,27 +41,27 @@
             <p class="eyebrow">SPACE</p>
             <h2>Reflection field</h2>
           </div>
-          <button id="clear-reflectors" class="text-button" type="button">Tyhjennä</button>
+          <button id="clear-reflectors" class="text-button" type="button">Clear</button>
         </div>
         <dl class="points">
           <div><dt>Source</dt><dd id="source-coordinates">–</dd></div>
           <div><dt>Listener</dt><dd id="listener-coordinates">–</dd></div>
         </dl>
         <div id="reflection-list" class="reflection-list"></div>
-        <p id="empty-reflections" class="empty-state">Lisää kartalle vähintään yksi reflector nähdäksesi etäisyydet ja ajat.</p>
+        <p id="empty-reflections" class="empty-state">Add at least one reflector to see its distances and propagation time.</p>
       </section>
 
       <section class="audio-section">
         <p class="eyebrow">BROWSER AUDIO</p>
-        <h2>Kuuntele geometria</h2>
+        <h2>Listen to the geometry</h2>
         <label class="file-picker">
-          <span>Oma ääni</span>
+          <span>Choose your own sound</span>
           <input id="audio-file" type="file" accept="audio/*">
         </label>
-        <p id="sound-name" class="sound-name">Ääni: Echotect handclap</p>
+        <p id="sound-name" class="sound-name">Sound: Echotect handclap</p>
         <div class="audio-actions">
-          <button id="play-button" class="primary" type="button">Soita impulssi</button>
-          <button id="default-sound" type="button">Palauta handclap</button>
+          <button id="play-button" class="primary" type="button">Play impulse</button>
+          <button id="default-sound" type="button">Use handclap</button>
         </div>
         <p id="status" class="status" role="status" aria-live="polite"></p>
       </section>
