@@ -18,7 +18,12 @@ const map = new maplibregl.Map({
   style: {
     version: 8,
     sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' } },
-    layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
+    layers: [{
+      id: 'osm',
+      type: 'raster',
+      source: 'osm',
+      paint: { 'raster-saturation': -1, 'raster-contrast': .08, 'raster-brightness-max': .82 }
+    }]
   }
 });
 map.addControl(new maplibregl.NavigationControl(), 'bottom-left');
@@ -101,7 +106,7 @@ function render() {
 
 map.on('load', () => {
   map.addSource('routes', { type: 'geojson', data: routeGeoJson() });
-  map.addLayer({ id: 'routes', type: 'line', source: 'routes', paint: { 'line-color': '#c8ff46', 'line-width': 3, 'line-opacity': .85 } });
+  map.addLayer({ id: 'routes', type: 'line', source: 'routes', paint: { 'line-color': '#ff69b4', 'line-width': 3, 'line-opacity': .9 } });
   syncMarkers(); render();
 });
 
