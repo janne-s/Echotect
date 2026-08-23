@@ -4,7 +4,7 @@ import { DISTANCE_METHOD, EARTH_RADIUS_METRES, SPEED_OF_SOUND_METRES_PER_SECOND 
 import { WAV_CHANNELS, WAV_FORMAT, WAV_SAMPLE_RATE } from './wav.js';
 
 export const PROJECT_FORMAT = 'echotect-project';
-export const PROJECT_SCHEMA_VERSION = '1.1.0';
+export const PROJECT_SCHEMA_VERSION = '1.0.0';
 
 const point = value => ({ latitudeDegrees: value.latitude, longitudeDegrees: value.longitude });
 

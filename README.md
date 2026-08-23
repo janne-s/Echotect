@@ -22,7 +22,7 @@ optional Max for Live device.
 - Late responses are deterministic and derive their timing, attenuation, and
   stereo energy from the active geometry.
 
-The project manifest identifies itself as `echotect-project` schema `1.1.0`.
+The project manifest identifies itself as `echotect-project` schema `1.0.0`.
 Geometry and settings are authoritative; exported path times, levels, and
 azimuths form a reproducible snapshot for other tools. `derived.direct` and
 `derived.earlyPaths` state the level of every arrival, so a consumer reproduces

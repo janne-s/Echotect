@@ -1,7 +1,7 @@
 # Echotect Field for Max for Live
 
 Echotect Field is the optional real-time delay companion for Echotect. It reads
-an `echotect-project` JSON manifest at schema version `1.1.0` and maps its direct
+an `echotect-project` JSON manifest at schema version `1.0.0` and maps its direct
 arrival and early reflection paths to a spatial multi-tap delay. Every arrival
 level, time, and azimuth is read from the manifest; the device derives none of
 them again. The browser application and its JSON/WAV exports remain fully

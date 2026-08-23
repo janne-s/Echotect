@@ -3,7 +3,7 @@ const test = require('node:test');
 const model = require('../echotect_model.js');
 
 const manifest = {
-  format: 'echotect-project', schemaVersion: '1.1.0', project: { name: 'Test' },
+  format: 'echotect-project', schemaVersion: '1.0.0', project: { name: 'Test' },
   geometry: { listener: { headingDegrees: 0 } },
   derived: {
     direct: { propagationSeconds: 1, pathMetres: 343, levelDb: -7.783322, arrivalAzimuthDegrees: 0 },
@@ -38,7 +38,7 @@ test('quad panning is constant power and heading rotates the field', () => {
 test('unsupported schema is rejected without fallback', () => {
   const incompatible = JSON.parse(JSON.stringify(manifest));
   incompatible.schemaVersion = '0.9.0';
-  assert.match(model.validate(incompatible).join(' '), /schemaVersion must be 1\.1\.0/);
+  assert.match(model.validate(incompatible).join(' '), /schemaVersion must be 1\.0\.0/);
 });
 
 test('the voice budget covers the complete Echotect early-path range plus the direct arrival', () => {

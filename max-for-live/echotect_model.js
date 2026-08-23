@@ -3,7 +3,7 @@
     "use strict";
 
     var FORMAT = "echotect-project";
-    var VERSION = "1.1.0";
+    var VERSION = "1.0.0";
     // Echotect allows 4096 early paths plus the direct arrival.
     // Max poly~ banks are split below their per-instance 1023 voice limit.
     var MAX_VOICES = 4097;
