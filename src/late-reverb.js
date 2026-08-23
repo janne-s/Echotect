@@ -1,4 +1,5 @@
-import { decibelsToGain, distanceAttenuation } from './audio-model.js';
+import { geometryReferencePathMetres, maximumBandLevelDb, OCTAVE_BAND_HZ, pathBandGains, renderOctaveBandImpulse } from './acoustics.js';
+import { SOURCE_ONSET_GAIN } from './audio-model.js';
 import { propagationSeconds } from './geo.js';
 import { equalPowerGains, stereoPan } from './spatial.js';
 
@@ -23,36 +24,45 @@ function randomGenerator(seed) {
   };
 }
 
-function addArrival(channels, sample, amplitude, pan, random) {
-  if (sample < 0 || sample >= channels[0].length) return;
+function addArrival(bandChannels, sample, bandGains, pan, random) {
+  if (sample < 0 || sample >= bandChannels[0][0].length) return;
   const gains = equalPowerGains(pan);
   const polarity = random() < .5 ? -1 : 1;
-  ARRIVAL_KERNEL.forEach((weight, offset) => {
+  bandChannels.forEach((channels, band) => ARRIVAL_KERNEL.forEach((weight, offset) => {
     if (sample + offset >= channels[0].length) return;
-    channels[0][sample + offset] += amplitude * gains[0] * polarity * weight;
-    channels[1][sample + offset] += amplitude * gains[1] * polarity * weight;
-  });
+    channels[0][sample + offset] += bandGains[band] * gains[0] * polarity * weight;
+    channels[1][sample + offset] += bandGains[band] * gains[1] * polarity * weight;
+  }));
 }
 
-export function synthesizeLateReverb({ sampleRate, source, listener, reflectors, heading, distanceMetres, durationSeconds = 10, maxBounces = 32, walkCount = 8192, cutoffDb = -90, decayScale = .5, spatialAudio = true }) {
+export function synthesizeLateReverb({ sampleRate, source, listener, reflectors, heading, distanceMetres, durationSeconds = 10, maxBounces = 32, walkCount = 8192, cutoffDb = -90, spatialAudio = true, settings = {}, diffuseEnergyRetention = .6 }) {
   const length = Math.ceil(sampleRate * durationSeconds);
   const channels = [new Float32Array(length), new Float32Array(length)];
   if (reflectors.length < 2) return channels;
 
+  const bandChannels = OCTAVE_BAND_HZ.map(() => [new Float32Array(length), new Float32Array(length)]);
+
   const random = randomGenerator(geometrySeed(source, listener, reflectors));
   const boundedWalkCount = Math.max(1, walkCount);
   const walkNormalization = Math.sqrt(boundedWalkCount);
-  const audibilityGain = decibelsToGain(cutoffDb);
+  const referencePathMetres = geometryReferencePathMetres(distanceMetres(source, listener),
+    reflectors.map(reflector => distanceMetres(source, reflector) + distanceMetres(reflector, listener)));
   for (let walk = 0; walk < boundedWalkCount; walk += 1) {
     let current = reflectors[Math.floor(random() * reflectors.length)];
+    const path = [current];
     let travelledMetres = distanceMetres(source, current);
-    let energy = decibelsToGain(current.levelDb);
-    for (let bounce = 1; bounce <= maxBounces && energy >= audibilityGain; bounce += 1) {
+    for (let bounce = 1; bounce <= maxBounces; bounce += 1) {
       const arrivalSeconds = propagationSeconds(travelledMetres + distanceMetres(current, listener));
       if (arrivalSeconds >= durationSeconds) break;
+      const diffuseGain = diffuseEnergyRetention ** ((bounce - 1) / 2);
+      const audibleBandGains = pathBandGains({
+        pathMetres: travelledMetres + distanceMetres(current, listener), referencePathMetres, reflectors: path, settings,
+        sourceGain: SOURCE_ONSET_GAIN * diffuseGain
+      });
+      if (maximumBandLevelDb(audibleBandGains) < cutoffDb) break;
+      const bandGains = audibleBandGains.map(gain => gain / walkNormalization);
       if (bounce >= 2) {
-        const amplitude = energy * distanceAttenuation(travelledMetres) / walkNormalization;
-        addArrival(channels, Math.round(arrivalSeconds * sampleRate), amplitude, stereoPan(listener, current, heading, spatialAudio), random);
+        addArrival(bandChannels, Math.round(arrivalSeconds * sampleRate), bandGains, stereoPan(listener, current, heading, spatialAudio), random);
       }
 
       let next = current;
@@ -62,9 +72,12 @@ export function synthesizeLateReverb({ sampleRate, source, listener, reflectors,
       if (next.id === current.id) break;
       travelledMetres += distanceMetres(current, next);
       current = next;
-      energy *= decibelsToGain(current.levelDb * decayScale);
+      path.push(current);
     }
   }
 
+  for (let channel = 0; channel < 2; channel += 1) {
+    channels[channel] = renderOctaveBandImpulse(bandChannels.map(band => band[channel]), sampleRate);
+  }
   return channels;
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_ECHO_FIELD_SETTINGS, ECHO_FIELD_SETTINGS, LATE_MODES, normalizeEchoFieldSettings } from '../src/echo-field-settings.js';
+import { AIR_MODES, DEFAULT_ECHO_FIELD_SETTINGS, ECHO_FIELD_SETTINGS, LATE_MODES, POINT_MODES, normalizeEchoFieldSettings } from '../src/echo-field-settings.js';
 
 test('every setting declares a usable range and an in-range fallback', () => {
   for (const [name, spec] of Object.entries(ECHO_FIELD_SETTINGS)) {
@@ -17,14 +17,22 @@ test('missing, malformed, and unusable values fall back to the defaults', () => 
 });
 
 test('slider strings and out-of-range numbers are bounded to the declared range', () => {
-  const settings = normalizeEchoFieldSettings({ durationSeconds: '12', maxSurfaces: 4, earlyPathLimit: 99999, lateWalks: '300.7', geometryInfluence: -3 });
+  const settings = normalizeEchoFieldSettings({ durationSeconds: '12', maxSurfaces: 4, pointPathLimit: 99999, lateWalks: '300.7', geometryInfluence: -3 });
   assert.equal(settings.durationSeconds, 12);
   assert.equal(settings.maxSurfaces, ECHO_FIELD_SETTINGS.maxSurfaces.minimum);
-  assert.equal(settings.earlyPathLimit, ECHO_FIELD_SETTINGS.earlyPathLimit.maximum);
+  assert.equal(settings.pointPathLimit, ECHO_FIELD_SETTINGS.pointPathLimit.maximum);
   assert.equal(settings.lateWalks, 301);
   assert.equal(settings.geometryInfluence, ECHO_FIELD_SETTINGS.geometryInfluence.minimum);
 });
 
 test('both late modes survive normalization unchanged', () => {
   for (const lateMode of LATE_MODES) assert.equal(normalizeEchoFieldSettings({ lateMode }).lateMode, lateMode);
+});
+
+test('both point reflection modes survive normalization unchanged', () => {
+  for (const pointMode of POINT_MODES) assert.equal(normalizeEchoFieldSettings({ pointMode }).pointMode, pointMode);
+});
+
+test('all atmospheric modes survive normalization unchanged', () => {
+  for (const airMode of AIR_MODES) assert.equal(normalizeEchoFieldSettings({ airMode }).airMode, airMode);
 });

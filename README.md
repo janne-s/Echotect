@@ -7,32 +7,54 @@ optional Max for Live device.
 
 ![Echotect interface](assets/screenshot.jpg)
 
-## Audio conventions
+## How it works
 
-- Geometry is two-dimensional and distances are measured in metres. Propagation
-  time uses an explicit speed of sound of 343 metres per second.
-- Direct arrival is calculated from Source to Listener. Reflections use the
-  complete Source → Reflector path(s) → Listener distance.
-- Source onset, propagated direct arrival, early reflections, and late field are
-  separate events.
-- Listener heading uses compass degrees with north at 0°. Direct arrives from
-  the Source direction; each reflection arrives from its final Reflector.
-- Canonical spatial stereo uses deterministic equal-power panning. The optional
-  browser HRTF mode is monitor-only and does not alter project or WAV exports.
-- Late responses are deterministic and derive their timing, attenuation, and
-  stereo energy from the active geometry.
+Place a Source, Listener, and Reflectors on the map. Echotect uses the resulting
+distances to time the direct sound and reflections. Longer paths arrive later
+and lose more level and high-frequency energy. Reflector materials affect which
+frequencies are absorbed, while the selected spatial mode controls how the
+result is heard in the browser.
 
-The project manifest identifies itself as `echotect-project` schema `1.0.0`.
-Geometry and settings are authoritative; exported path times, levels, and
-azimuths form a reproducible snapshot for other tools. `derived.direct` and
-`derived.earlyPaths` state the level of every arrival, so a consumer reproduces
-Echotect levels without repeating the distance and material calculations.
+Point Reflectors create distinct echoes and can reflect sound between one
+another. The Echo field uses nearby building surfaces to create a denser late
+response. Projects remain editable, and audio can be exported as impulse
+responses, a wet render, or aligned stems.
 
-WAV exports are stereo, 48 kHz, 32-bit IEEE floating point. Echotect does not
-normalize, limit, quantize, clip, truncate, or shift them silently. Convolution
-and rendered FDN IRs contain early and late reflections without direct arrival.
-Wet contains direct, early, and late. Direct, early, and late stems share the
-same start and duration.
+## Echo field settings
+
+- **Point reflections** — Chooses between a longer, more diffuse point-reflection
+  response and stricter geometric decay.
+- **Point persistence** — Sets how strongly sound continues between Point
+  Reflectors in Persistent mode.
+- **Point bounces** — Limits how many times a point-reflection path can bounce.
+- **Point path limit** — Limits the number of point-reflection paths used.
+- **Atmosphere** — Uses standard air conditions, custom conditions, or disables
+  air absorption.
+- **Temperature** — Sets the air temperature for Custom atmosphere mode.
+- **Relative humidity** — Sets the humidity for Custom atmosphere mode.
+- **Air pressure** — Sets the air pressure for Custom atmosphere mode.
+- **Air attenuation scale** — Adjusts the strength of air absorption; `1.00× ISO`
+  is the normal model and `0.00×` disables its effect.
+- **Geometric spreading** — Controls level loss over distance; `1/r` is the
+  natural setting and Off removes this loss.
+- **Material absorption scale** — Adjusts how strongly reflector materials color
+  and absorb the sound; `1.00×` uses the normal material presets.
+- **Late field** — Selects the sampled Convolution response or the Feedback
+  network reverb.
+- **Response duration** — Sets the maximum Convolution response length.
+- **Echo field surfaces** — Limits how many nearby building surfaces are used.
+- **Late path samples** — Sets how many sampled paths form the Convolution tail.
+- **Late field bounces** — Limits the number of surface bounces in the late
+  field.
+- **Cutoff level** — Stops paths after they have become quieter than this level.
+- **Tail persistence** — Controls how readily Convolution paths continue after
+  each bounce.
+- **Tail length** — Sets the Feedback network reverb time.
+- **Density** — Controls how closely packed the Feedback network echoes are.
+- **Damping** — Controls how quickly high frequencies fade from the Feedback
+  network tail.
+- **Geometry influence** — Controls how strongly the map geometry shapes the
+  Feedback network.
 
 ## Max for Live
 

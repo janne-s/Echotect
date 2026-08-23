@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AUDIBILITY_THRESHOLD_DB, buildReflectionPaths, gainToDecibels, reflectionPathGain } from '../src/audio-model.js';
+import { buildReflectionPaths, reflectionBranchGain } from '../src/audio-model.js';
 
 test('one reflector produces exactly one reflected path', () => {
   const reflector = { id: 'r1', levelDb: -6 };
@@ -22,8 +22,12 @@ test('reflection paths stop when their reflector levels fall below -90 dB', () =
   assert.equal(Math.max(...paths.map(path => path.length)), 7);
 });
 
-test('each reflector attenuates the complete path', () => {
-  const gain = reflectionPathGain(1, [{ levelDb: -6 }, { levelDb: -6 }]);
-  assert.ok(Math.abs(gainToDecibels(gain) - -12) < 0.001);
-  assert.ok(gainToDecibels(reflectionPathGain(1, Array.from({ length: 16 }, (_, index) => ({ id: String(index), levelDb: -6 })))) < AUDIBILITY_THRESHOLD_DB);
+test('diffuse branch amplitudes conserve energy at every bounce', () => {
+  const reflectorCount = 5;
+  const branches = reflectorCount - 1;
+  for (const bounce of [2, 3, 4]) {
+    const pathCount = branches ** (bounce - 1);
+    const gain = reflectionBranchGain(reflectorCount, bounce);
+    assert.ok(Math.abs(pathCount * gain ** 2 - 1) < 1e-12);
+  }
 });

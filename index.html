@@ -140,10 +140,20 @@
     <form method="dialog">
       <h2 id="echo-settings-title">Echo field settings</h2>
       <div class="settings-grid">
+        <label><span>Point reflections</span><select id="setting-point-mode"><option value="persistent">Persistent</option><option value="geometric">Geometric</option></select></label>
+        <label data-point-mode="persistent"><span>Point persistence</span><span class="settings-control"><input id="setting-point-persistence" type="range"><output id="setting-point-persistence-value"></output></span></label>
+        <label><span>Point bounces</span><span class="settings-control"><input id="setting-point-bounces" type="range"><output id="setting-point-bounces-value"></output></span></label>
+        <label><span>Point path limit</span><span class="settings-control"><input id="setting-point-paths" type="range"><output id="setting-point-paths-value"></output></span></label>
+        <label><span>Atmosphere</span><select id="setting-air-mode"><option value="standard">Standard</option><option value="custom">Custom</option><option value="off">Off</option></select></label>
+        <label data-air-mode="custom"><span>Temperature</span><span class="settings-control"><input id="setting-air-temperature" type="range"><output id="setting-air-temperature-value"></output></span></label>
+        <label data-air-mode="custom"><span>Relative humidity</span><span class="settings-control"><input id="setting-air-humidity" type="range"><output id="setting-air-humidity-value"></output></span></label>
+        <label data-air-mode="custom"><span>Air pressure</span><span class="settings-control"><input id="setting-air-pressure" type="range"><output id="setting-air-pressure-value"></output></span></label>
+        <label data-air-active><span>Air attenuation scale</span><span class="settings-control"><input id="setting-air-amount" type="range"><output id="setting-air-amount-value"></output></span></label>
+        <label><span>Geometric spreading</span><span class="settings-control"><input id="setting-geometric-spreading" type="range"><output id="setting-geometric-spreading-value"></output></span></label>
+        <label><span>Material absorption scale</span><span class="settings-control"><input id="setting-material-coloration" type="range"><output id="setting-material-coloration-value"></output></span></label>
         <label><span>Late field</span><select id="setting-late-mode"><option value="convolution">Convolution</option><option value="fdn">Feedback network</option></select></label>
         <label data-late-mode="convolution"><span>Response duration</span><span class="settings-control"><input id="setting-duration" type="range"><output id="setting-duration-value"></output></span></label>
         <label><span>Echo field surfaces</span><span class="settings-control"><input id="setting-surfaces" type="range"><output id="setting-surfaces-value"></output></span></label>
-        <label><span>Early path limit</span><span class="settings-control"><input id="setting-early-paths" type="range"><output id="setting-early-paths-value"></output></span></label>
         <label data-late-mode="convolution"><span>Late path samples</span><span class="settings-control"><input id="setting-late-walks" type="range"><output id="setting-late-walks-value"></output></span></label>
         <label><span>Late field bounces</span><span class="settings-control"><input id="setting-bounces" type="range"><output id="setting-bounces-value"></output></span></label>
         <label><span>Cutoff level</span><span class="settings-control"><input id="setting-cutoff" type="range"><output id="setting-cutoff-value"></output></span></label>

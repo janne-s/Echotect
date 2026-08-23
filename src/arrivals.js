@@ -1,4 +1,5 @@
-import { buildEarlyReflectionPaths, directArrivalGain, earlyPathGain, gainToDecibels, reflectionPathGain, SOURCE_ONSET_GAIN } from './audio-model.js';
+import { bandLevelDb, geometryReferencePathMetres, maximumBandLevelDb, pathBandGains, pathFilter } from './acoustics.js';
+import { buildEarlyReflectionPaths, reflectionBranchGain, SOURCE_ONSET_GAIN } from './audio-model.js';
 import { directSoundMetrics, isDistinctPath, reflectionPathMetrics } from './geo.js';
 import { arrivalAzimuthDegrees } from './spatial.js';
 import { WAV_SAMPLE_RATE } from './wav.js';
@@ -8,14 +9,19 @@ import { WAV_SAMPLE_RATE } from './wav.js';
  * project manifest all read these events, so a declared level always matches the rendered one.
  * Distances are metres, times seconds, levels decibels, azimuths compass degrees.
  */
-export function createDirectArrivalEvent({ source, listener, sampleRate = WAV_SAMPLE_RATE }) {
+export function createDirectArrivalEvent({ source, listener, settings = {}, sampleRate = WAV_SAMPLE_RATE }) {
   const metrics = directSoundMetrics(source, listener);
   const distinct = isDistinctPath(metrics.pathMetres);
-  const gain = distinct ? directArrivalGain(metrics.pathMetres) : SOURCE_ONSET_GAIN;
+  const bandGains = distinct
+    ? pathBandGains({ pathMetres: metrics.pathMetres, referencePathMetres: metrics.pathMetres, settings, sourceGain: SOURCE_ONSET_GAIN })
+    : Array(7).fill(SOURCE_ONSET_GAIN);
+  const gain = bandGains[3];
   return {
     frame: distinct ? Math.round(metrics.propagationSeconds * sampleRate) : 0,
     gain,
-    levelDb: gainToDecibels(gain),
+    levelDb: bandLevelDb(bandGains),
+    bandGains,
+    filter: pathFilter(bandGains, sampleRate),
     emitter: source,
     pathMetres: metrics.pathMetres,
     propagationSeconds: metrics.propagationSeconds,
@@ -24,16 +30,23 @@ export function createDirectArrivalEvent({ source, listener, sampleRate = WAV_SA
 }
 
 export function createEarlyArrivalEvents({ source, listener, reflectors, settings, sampleRate = WAV_SAMPLE_RATE }) {
+  const directPathMetres = directSoundMetrics(source, listener).pathMetres;
+  const firstReflectionPathMetres = reflectors.map(reflector => reflectionPathMetrics(source, listener, [reflector]).pathMetres);
+  const referencePathMetres = geometryReferencePathMetres(directPathMetres, firstReflectionPathMetres);
   return buildEarlyReflectionPaths(reflectors, settings).flatMap(path => {
     const metrics = reflectionPathMetrics(source, listener, path);
-    const gain = reflectionPathGain(earlyPathGain(metrics.pathMetres), path);
-    const levelDb = gainToDecibels(gain);
-    if (levelDb < settings.cutoffDb) return [];
+    const branchGain = reflectionBranchGain(reflectors.length, path.length);
+    const bandGains = pathBandGains({ pathMetres: metrics.pathMetres, referencePathMetres, reflectors: path, settings, sourceGain: SOURCE_ONSET_GAIN * branchGain });
+    const gain = bandGains[3];
+    const levelDb = bandLevelDb(bandGains);
+    if (maximumBandLevelDb(bandGains) < settings.cutoffDb) return [];
     const emitter = path.at(-1);
     return [{
       frame: Math.round(metrics.propagationSeconds * sampleRate),
       gain,
       levelDb,
+      bandGains,
+      filter: pathFilter(bandGains, sampleRate),
       emitter,
       reflectorIds: path.map(reflector => reflector.id),
       finalReflectorId: emitter.id,

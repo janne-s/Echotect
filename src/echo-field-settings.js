@@ -3,6 +3,10 @@ import { boundedValue } from './range.js';
 
 export const LATE_MODES = Object.freeze(['convolution', 'fdn']);
 export const DEFAULT_LATE_MODE = 'convolution';
+export const POINT_MODES = Object.freeze(['geometric', 'persistent']);
+export const DEFAULT_POINT_MODE = 'persistent';
+export const AIR_MODES = Object.freeze(['standard', 'custom', 'off']);
+export const DEFAULT_AIR_MODE = 'standard';
 
 /**
  * The one description of every echo field setting: its bounds, its slider step, and the value used
@@ -12,7 +16,15 @@ export const DEFAULT_LATE_MODE = 'convolution';
 export const ECHO_FIELD_SETTINGS = Object.freeze({
   durationSeconds: { minimum: 1, maximum: 30, step: 1, fallback: 10 },
   maxSurfaces: { minimum: 8, maximum: 256, step: 1, fallback: 48, integer: true },
-  earlyPathLimit: { minimum: 32, maximum: 4096, step: 32, fallback: 512, integer: true },
+  pointPathLimit: { minimum: 32, maximum: 4096, step: 32, fallback: 512, integer: true },
+  pointMaxBounces: { minimum: 1, maximum: 16, step: 1, fallback: 6, integer: true },
+  pointPersistence: { minimum: 0, maximum: .95, step: .05, fallback: .65 },
+  geometricSpreadingAmount: { minimum: 0, maximum: 1, step: .05, fallback: 1 },
+  airTemperatureCelsius: { minimum: -20, maximum: 50, step: 1, fallback: 20 },
+  airHumidityPercent: { minimum: 10, maximum: 100, step: 1, fallback: 50 },
+  airPressureKpa: { minimum: 80, maximum: 110, step: .1, fallback: 101.3 },
+  airAbsorptionAmount: { minimum: 0, maximum: 2, step: .05, fallback: 1 },
+  materialColorationAmount: { minimum: 0, maximum: 2, step: .05, fallback: 1 },
   lateWalks: { minimum: 256, maximum: 32768, step: 256, fallback: 8192, integer: true },
   maxBounces: { minimum: 2, maximum: 64, step: 1, fallback: 32, integer: true },
   cutoffDb: { minimum: -120, maximum: -30, step: 1, fallback: AUDIBILITY_THRESHOLD_DB },
@@ -31,6 +43,8 @@ export function normalizeEchoFieldSettings(values) {
     settings[name] = spec.integer ? Math.round(value) : value;
   }
   settings.lateMode = LATE_MODES.includes(values?.lateMode) ? values.lateMode : DEFAULT_LATE_MODE;
+  settings.pointMode = POINT_MODES.includes(values?.pointMode) ? values.pointMode : DEFAULT_POINT_MODE;
+  settings.airMode = AIR_MODES.includes(values?.airMode) ? values.airMode : DEFAULT_AIR_MODE;
   return settings;
 }
 

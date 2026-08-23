@@ -7,6 +7,10 @@ level, time, and azimuth is read from the manifest; the device derives none of
 them again. The browser application and its JSON/WAV exports remain fully
 usable without Max for Live.
 
+Manifest levels are the 1 kHz octave-band reference for each arrival. Portable
+WAV exports contain the full atmospheric and material coloration; this initial
+Max device remains a broadband delay-tap renderer.
+
 ## Contents
 
 - `Echotect Field.maxpat` — canonical, hand-edited device and UI

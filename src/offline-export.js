@@ -1,7 +1,9 @@
 import { createDirectArrivalEvent, createEarlyArrivalEvents } from './arrivals.js';
+import { atmosphericBandGains, materialBandGains, OCTAVE_BAND_HZ, renderOctaveBandImpulse } from './acoustics.js';
 import { SOURCE_ONSET_GAIN } from './audio-model.js';
 import { exportFrameLayout, fdnResponseSeconds, lateFieldGain } from './export-layout.js';
 import { createFdnConfiguration } from './fdn.js';
+import { SPEED_OF_SOUND_METRES_PER_SECOND } from './geo.js';
 import { synthesizeLateReverb } from './late-reverb.js';
 import { equalPowerGains, stereoPan } from './spatial.js';
 import { WAV_SAMPLE_RATE } from './wav.js';
@@ -76,6 +78,24 @@ export function renderFdnImpulse(configuration, frameCount) {
     });
   }
   return output;
+}
+
+function colorFdnResponse(channels, configuration, reflectors, settings, sampleRate) {
+  if (!reflectors.length) return channels;
+  const meanDelayFrames = configuration.delaySamples.reduce((sum, value) => sum + value, 0) / configuration.delaySamples.length;
+  const material = OCTAVE_BAND_HZ.map((_, band) => reflectors.reduce((sum, reflector) =>
+    sum + materialBandGains(reflector.effectiveMaterial ?? reflector.material, settings.materialColorationAmount ?? 1)[band], 0) / reflectors.length);
+  return channels.map(channel => {
+    const bands = OCTAVE_BAND_HZ.map(() => new Float32Array(channel.length));
+    for (let frame = 0; frame < channel.length; frame += 1) {
+      if (!channel[frame]) continue;
+      const pathMetres = frame / sampleRate * SPEED_OF_SOUND_METRES_PER_SECOND;
+      const air = atmosphericBandGains(pathMetres, settings);
+      const bounces = frame / Math.max(1, meanDelayFrames);
+      for (let band = 0; band < bands.length; band += 1) bands[band][frame] = channel[frame] * air[band] * material[band] ** bounces;
+    }
+    return renderOctaveBandImpulse(bands, sampleRate);
+  });
 }
 
 async function convolve(inputMono, impulse, frameCount, sampleRate) {
@@ -180,16 +200,15 @@ export async function renderExportAudio({ source, listener, reflectors, heading,
   const wanted = new Set(outputs);
   const spatialAudio = settings.spatialAudio !== false;
   const earlyEvents = createEarlyArrivalEvents({ source, listener, reflectors, settings, sampleRate });
-  const directEvent = createDirectArrivalEvent({ source, listener, sampleRate });
+  const directEvent = createDirectArrivalEvent({ source, listener, settings, sampleRate });
   const { convolutionIrFrames, fdnIrFrames, timelineFrames } = exportFrameLayout({
-    settings, earlyFrames: earlyEvents.map(event => event.frame), directFrame: directEvent.frame, inputFrames: inputMono.length, sampleRate
+    settings, earlyFrames: earlyEvents.map(event => event.frame + event.filter.length - 1), directFrame: directEvent.frame + directEvent.filter.length - 1, inputFrames: inputMono.length, sampleRate
   });
 
   const earlyIr = once(() => {
     const channels = stereo(convolutionIrFrames);
-    const impulse = new Float32Array([1]);
     for (const event of earlyEvents) {
-      addMono(channels, impulse, event.frame, event.gain, stereoPan(listener, event.emitter, heading, spatialAudio));
+      addMono(channels, event.filter, event.frame, 1, stereoPan(listener, event.emitter, heading, spatialAudio));
     }
     return channels;
   });
@@ -197,7 +216,8 @@ export async function renderExportAudio({ source, listener, reflectors, heading,
   const convolutionLateIr = once(() => synthesizeLateReverb({
     sampleRate, source, listener, reflectors, heading, distanceMetres, durationSeconds: settings.durationSeconds,
     maxBounces: settings.maxBounces, walkCount: settings.lateWalks, cutoffDb: settings.cutoffDb,
-    decayScale: 1.1 - settings.tailPersistence, spatialAudio
+    spatialAudio, settings,
+    diffuseEnergyRetention: settings.pointMode === 'persistent' ? settings.pointPersistence : settings.tailPersistence
   }));
 
   const fdnLateIr = once(() => {
@@ -207,15 +227,15 @@ export async function renderExportAudio({ source, listener, reflectors, heading,
       density: settings.fdnDensity, damping: settings.fdnDamping, geometryInfluence: settings.geometryInfluence
     });
     if (!spatialAudio) configuration.outputGains = configuration.outputGains.map(() => [Math.SQRT1_2, Math.SQRT1_2]);
-    return renderFdnImpulse(configuration, fdnIrFrames);
+    return colorFdnResponse(renderFdnImpulse(configuration, fdnIrFrames), configuration, reflectors, settings, sampleRate);
   });
 
   const selectedLateIr = () => settings.lateMode === 'fdn' ? fdnLateIr() : convolutionLateIr();
 
   const directArrival = once(() => {
-    const channels = stereo(timelineFrames);
-    addMono(channels, inputMono, directEvent.frame, directEvent.gain, stereoPan(listener, source, heading, spatialAudio));
-    return channels;
+    const impulse = stereo(timelineFrames);
+    addMono(impulse, directEvent.filter, directEvent.frame, 1, stereoPan(listener, source, heading, spatialAudio));
+    return convolveSparse(inputMono, impulse, timelineFrames);
   });
 
   const rendered = {

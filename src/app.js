@@ -4,7 +4,7 @@ import { DEFAULT_ECHO_FIELD_SETTINGS, ECHO_FIELD_SETTINGS, normalizeEchoFieldSet
 import { edgeKey, reflectionField, wallReflectionCandidate } from './echo-geometry.js';
 import { exportFrameLayout } from './export-layout.js';
 import { distanceMetres, isValidCoordinate, metresPerDegreeLatitude, metresPerDegreeLongitude, parseCoordinates, reflectionMetrics } from './geo.js';
-import { effectiveMaterial, MATERIAL_ATTENUATION_DB, MATERIAL_LABELS, normalizeFacadeMaterial } from './materials.js';
+import { effectiveMaterial, MATERIAL_LABELS, normalizeFacadeMaterial } from './materials.js';
 import { addStereo, renderExportAudio, resampleToMono } from './offline-export.js';
 import { createProjectManifest, validateProjectManifest } from './project-manifest.js';
 import { boundedValue } from './range.js';
@@ -599,7 +599,15 @@ function requestConfirmation({ title, message, confirmLabel = 'Confirm' }) {
 const echoSettingInputs = {
   durationSeconds: '#setting-duration',
   maxSurfaces: '#setting-surfaces',
-  earlyPathLimit: '#setting-early-paths',
+  pointPathLimit: '#setting-point-paths',
+  pointMaxBounces: '#setting-point-bounces',
+  pointPersistence: '#setting-point-persistence',
+  airTemperatureCelsius: '#setting-air-temperature',
+  airHumidityPercent: '#setting-air-humidity',
+  airPressureKpa: '#setting-air-pressure',
+  airAbsorptionAmount: '#setting-air-amount',
+  geometricSpreadingAmount: '#setting-geometric-spreading',
+  materialColorationAmount: '#setting-material-coloration',
   lateWalks: '#setting-late-walks',
   maxBounces: '#setting-bounces',
   cutoffDb: '#setting-cutoff',
@@ -613,7 +621,15 @@ const echoSettingInputs = {
 const echoSettingOutputs = {
   durationSeconds: ['#setting-duration-value', value => `${value} s`],
   maxSurfaces: ['#setting-surfaces-value', value => value],
-  earlyPathLimit: ['#setting-early-paths-value', value => Number(value).toLocaleString('en-US')],
+  pointPathLimit: ['#setting-point-paths-value', value => Number(value).toLocaleString('en-US')],
+  pointMaxBounces: ['#setting-point-bounces-value', value => value],
+  pointPersistence: ['#setting-point-persistence-value', value => `${Math.round(value * 100)}%`],
+  airTemperatureCelsius: ['#setting-air-temperature-value', value => `${value} °C`],
+  airHumidityPercent: ['#setting-air-humidity-value', value => `${value}%`],
+  airPressureKpa: ['#setting-air-pressure-value', value => `${Number(value).toFixed(1)} kPa`],
+  airAbsorptionAmount: ['#setting-air-amount-value', value => `${Number(value).toFixed(2)}× ISO`],
+  geometricSpreadingAmount: ['#setting-geometric-spreading-value', value => Number(value) === 0 ? 'Off' : Number(value) === 1 ? '1/r' : `1/r^${Number(value).toFixed(2)}`],
+  materialColorationAmount: ['#setting-material-coloration-value', value => `${Number(value).toFixed(2)}×`],
   lateWalks: ['#setting-late-walks-value', value => Number(value).toLocaleString('en-US')],
   maxBounces: ['#setting-bounces-value', value => value],
   cutoffDb: ['#setting-cutoff-value', value => `${value} dB`],
@@ -629,7 +645,20 @@ function syncLateModeSettings() {
   document.querySelectorAll('[data-late-mode]').forEach(row => { row.hidden = row.dataset.lateMode !== mode; });
 }
 
+function syncPointModeSettings() {
+  const mode = $('#setting-point-mode').value;
+  document.querySelectorAll('[data-point-mode]').forEach(row => { row.hidden = row.dataset.pointMode !== mode; });
+}
+
+function syncAirModeSettings() {
+  const mode = $('#setting-air-mode').value;
+  document.querySelectorAll('[data-air-mode]').forEach(row => { row.hidden = row.dataset.airMode !== mode; });
+  document.querySelectorAll('[data-air-active]').forEach(row => { row.hidden = mode === 'off'; });
+}
+
 $('#setting-late-mode').addEventListener('change', syncLateModeSettings);
+$('#setting-point-mode').addEventListener('change', syncPointModeSettings);
+$('#setting-air-mode').addEventListener('change', syncAirModeSettings);
 
 function syncEchoSettingOutput(setting) {
   const [outputSelector, format] = echoSettingOutputs[setting];
@@ -645,11 +674,15 @@ Object.entries(echoSettingInputs).forEach(([setting, selector]) => {
 
 $('#echo-settings-button').addEventListener('click', () => {
   $('#setting-late-mode').value = state.settings.echoField.lateMode;
+  $('#setting-point-mode').value = state.settings.echoField.pointMode;
+  $('#setting-air-mode').value = state.settings.echoField.airMode;
   Object.entries(echoSettingInputs).forEach(([setting, selector]) => {
     $(selector).value = state.settings.echoField[setting];
     syncEchoSettingOutput(setting);
   });
   syncLateModeSettings();
+  syncPointModeSettings();
+  syncAirModeSettings();
   const dialog = $('#echo-settings-dialog');
   dialog.returnValue = 'cancel';
   dialog.showModal();
@@ -660,7 +693,9 @@ $('#echo-settings-dialog').addEventListener('close', event => {
   if (event.currentTarget.returnValue !== 'save') return;
   state.settings.echoField = normalizeEchoFieldSettings({
     ...Object.fromEntries(Object.keys(echoSettingInputs).map(setting => [setting, $(echoSettingInputs[setting]).value])),
-    lateMode: $('#setting-late-mode').value
+    lateMode: $('#setting-late-mode').value,
+    pointMode: $('#setting-point-mode').value,
+    airMode: $('#setting-air-mode').value
   });
   scheduleSave();
   if (echoFieldEnabled) rebuildEchoField();
@@ -962,8 +997,8 @@ function addSourceOnset(channels, inputMono) {
   }
 }
 
-function monoAudioBuffer(context, samples) {
-  const buffer = context.createBuffer(1, samples.length, WAV_SAMPLE_RATE);
+function monoAudioBuffer(context, samples, sampleRate = WAV_SAMPLE_RATE) {
+  const buffer = context.createBuffer(1, samples.length, sampleRate);
   buffer.copyToChannel(samples, 0);
   return buffer;
 }
@@ -972,8 +1007,18 @@ function createHrtfArrival(context, buffer, event) {
   const source = context.createBufferSource(); const gain = context.createGain();
   const position = event.spatial === false ? null : hrtfPosition(state.listener, event.emitter, state.settings.heading);
   source.buffer = buffer; gain.gain.value = event.gain;
-  source.connect(gain);
+  let tail = source;
   const nodes = [source, gain];
+  if (event.filter) {
+    const convolver = context.createConvolver();
+    convolver.normalize = false;
+    convolver.buffer = monoAudioBuffer(context, event.filter, context.sampleRate);
+    source.connect(convolver);
+    tail = convolver;
+    gain.gain.value = 1;
+    nodes.push(convolver);
+  }
+  tail.connect(gain);
   if (position) {
     const panner = context.createPanner();
     panner.panningModel = 'HRTF'; panner.distanceModel = 'inverse'; panner.refDistance = 1; panner.maxDistance = 2; panner.rolloffFactor = 0;
@@ -991,13 +1036,15 @@ function playHrtfMonitor(context, inputMono, lateChannels, reflectors, directArr
   const onset = plan.playOnset
     ? createHrtfArrival(context, inputBuffer, { frame: 0, gain: SOURCE_ONSET_GAIN * Math.SQRT1_2, spatial: false })
     : null;
-  const arrivals = createEarlyArrivalEvents({ source: state.source, listener: state.listener, reflectors, settings: state.settings.echoField })
+  const arrivals = createEarlyArrivalEvents({
+    source: state.source, listener: state.listener, reflectors, settings: state.settings.echoField, sampleRate: context.sampleRate
+  })
     .map(event => createHrtfArrival(context, inputBuffer, event));
   if (plan.playDirectArrival) arrivals.push(createHrtfArrival(context, inputBuffer, directArrival));
   const startTime = playbackStartTime(context);
   onset?.source.start(startTime);
   lateSource.start(startTime);
-  arrivals.forEach(arrival => arrival.source.start(startTime + arrival.frame / WAV_SAMPLE_RATE));
+  arrivals.forEach(arrival => arrival.source.start(startTime + arrival.frame / context.sampleRate));
 }
 
 $('#play-button').addEventListener('click', async () => {
@@ -1013,7 +1060,9 @@ $('#play-button').addEventListener('click', async () => {
     // The monitor renders one mix: the live HRTF field pans the arrivals itself and needs the late
     // response only, while spatial stereo plays the canonical wet render.
     const hrtfMonitor = state.settings.panningMode === 'hrtf-live';
-    const directArrival = createDirectArrivalEvent({ source: state.source, listener: state.listener });
+    const directArrival = createDirectArrivalEvent({
+      source: state.source, listener: state.listener, settings: state.settings.echoField, sampleRate: context.sampleRate
+    });
     const plan = monitorArrivalPlan(directArrival, state.settings.arrivalsOnly);
     // Without the direct arrival the wet mix is not the right monitor mix, so its parts are asked for.
     const outputs = hrtfMonitor ? ['late'] : plan.playDirectArrival ? ['wet'] : ['early', 'late'];
@@ -1064,7 +1113,7 @@ const EXPORT_OUTPUTS_BY_SELECTION = Object.freeze({
 const exportSelectionInputs = () => [...document.querySelectorAll('input[name="export-item"]')];
 const exportReflectors = () => audibleReflectors().map(reflector => ({
   ...reflector,
-  levelDb: (reflector.levelDb ?? state.globalReflectionLevelDb) + MATERIAL_ATTENUATION_DB[effectiveMaterial(reflector, state.globalMaterial)],
+  levelDb: reflector.levelDb ?? state.globalReflectionLevelDb,
   effectiveMaterial: effectiveMaterial(reflector, state.globalMaterial)
 }));
 const inputDurationSeconds = () => importedAudioBuffer?.duration ?? defaultHandclapBuffer?.duration ?? DEFAULT_HANDCLAP_DURATION_SECONDS;
@@ -1088,8 +1137,8 @@ function exportSizes() {
   const geometry = { source: state.source, listener: state.listener };
   const { convolutionIrFrames, fdnIrFrames, timelineFrames } = exportFrameLayout({
     settings,
-    earlyFrames: createEarlyArrivalEvents({ ...geometry, reflectors: exportReflectors(), settings }).map(event => event.frame),
-    directFrame: createDirectArrivalEvent(geometry).frame,
+    earlyFrames: createEarlyArrivalEvents({ ...geometry, reflectors: exportReflectors(), settings }).map(event => event.frame + event.filter.length - 1),
+    directFrame: (() => { const event = createDirectArrivalEvent({ ...geometry, settings }); return event.frame + event.filter.length - 1; })(),
     inputFrames: Math.ceil(inputDurationSeconds() * WAV_SAMPLE_RATE)
   });
   return {

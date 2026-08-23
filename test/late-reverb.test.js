@@ -33,3 +33,12 @@ test('one surface does not invent a recursive tail', () => {
   const channels = synthesizeLateReverb({ ...options, reflectors: options.reflectors.slice(0, 1) });
   assert.equal(channels[0].some(Boolean), false);
 });
+
+const tailEnergy = (channels, startFrame) => channels.reduce((total, channel) =>
+  total + channel.subarray(startFrame).reduce((sum, sample) => sum + sample * sample, 0), 0);
+
+test('persistent point mode retains more recursive energy than geometric mode', () => {
+  const geometric = synthesizeLateReverb({ ...options, diffuseEnergyRetention: .3 });
+  const persistent = synthesizeLateReverb({ ...options, diffuseEnergyRetention: .8 });
+  assert.ok(tailEnergy(persistent, options.sampleRate * .75) > tailEnergy(geometric, options.sampleRate * .75));
+});
