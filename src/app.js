@@ -139,7 +139,7 @@ function render() {
 
 map.on('load', () => {
   map.addSource('direct-route', { type: 'geojson', data: directRouteGeoJson() });
-  map.addLayer({ id: 'direct-route', type: 'line', source: 'direct-route', paint: { 'line-color': '#ddd', 'line-width': 2, 'line-opacity': .7, 'line-dasharray': [3, 2] } });
+  map.addLayer({ id: 'direct-route', type: 'line', source: 'direct-route', paint: { 'line-color': '#ff69b4', 'line-width': 3, 'line-opacity': .95, 'line-dasharray': [2, 2] } });
   map.addSource('routes', { type: 'geojson', data: routeGeoJson() });
   map.addLayer({ id: 'routes', type: 'line', source: 'routes', paint: { 'line-color': '#ff69b4', 'line-width': 3, 'line-opacity': .9 } });
   syncMarkers(); render();
@@ -196,16 +196,25 @@ async function searchLocation(query) {
 
 $('#search-form').addEventListener('submit', async event => {
   event.preventDefault();
-  const query = $('#location-input').value.trim();
+  const input = $('#location-input');
+  const query = input.value.trim();
   if (!query) return;
-  $('#status').textContent = 'Searching for the place…';
+  input.setCustomValidity('');
   try {
     const location = await searchLocation(query);
-    if (!location) { $('#status').textContent = 'No matching place was found.'; return; }
+    if (!location) {
+      input.setCustomValidity('No matching place was found.');
+      input.reportValidity();
+      return;
+    }
     map.flyTo({ center: [location.longitude, location.latitude], zoom: 16 });
-    $('#status').textContent = `Map moved to: ${location.label}`;
-  } catch (error) { $('#status').textContent = error.message; }
+  } catch (error) {
+    input.setCustomValidity(error.message);
+    input.reportValidity();
+  }
 });
+
+$('#location-input').addEventListener('input', event => event.currentTarget.setCustomValidity(''));
 
 function getAudioContext() {
   audioContext ??= new AudioContext();
@@ -251,10 +260,6 @@ $('#play-button').addEventListener('click', async () => {
     const attenuation = Math.max(.12, Math.min(.65, 140 / Math.max(140, pathMetres)));
     playBufferAt(context, buffer, now + propagationSeconds, attenuation);
   });
-  const reflectionLabel = `${state.reflectors.length} ${state.reflectors.length === 1 ? 'reflection' : 'reflections'}`;
-  $('#status').textContent = hasDistinctDirectArrival(state.source, state.listener)
-    ? `Playing source onset, direct arrival, and ${reflectionLabel}.`
-    : `Playing source onset and ${reflectionLabel}; source and listener are co-located.`;
 });
 
 $('#audio-file').addEventListener('change', async event => {
@@ -264,10 +269,9 @@ $('#audio-file').addEventListener('change', async event => {
     const context = getAudioContext();
     importedAudioBuffer = await context.decodeAudioData(await file.arrayBuffer());
     $('#sound-name').textContent = `Sound: ${file.name}`;
-    $('#status').textContent = 'Your sound is ready to play.';
   } catch {
     importedAudioBuffer = null;
-    $('#status').textContent = 'This audio file could not be opened.';
+    $('#sound-name').textContent = 'Sound: file could not be opened';
   }
 });
 
@@ -275,5 +279,4 @@ $('#default-sound').addEventListener('click', () => {
   importedAudioBuffer = null;
   $('#audio-file').value = '';
   $('#sound-name').textContent = 'Sound: Echotect handclap';
-  $('#status').textContent = 'The default handclap is active.';
 });

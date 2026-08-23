@@ -58,14 +58,13 @@ dd { margin: 0; font: .76rem/1.5 ui-monospace, monospace; }
 .metric span { display: block; color: var(--muted); font-size: .68rem; }
 .metric strong { font: 600 .89rem/1.6 ui-monospace, monospace; }
 .route { margin: 6px 0 0; color: var(--muted); font-size: .69rem; }
-.empty-state, .sound-name, .status { color: var(--muted); font-size: .8rem; line-height: 1.5; }
+.empty-state, .sound-name { color: var(--muted); font-size: .8rem; line-height: 1.5; }
 .file-picker { display: flex; justify-content: center; padding: 7px; border: 1px dashed #4a4a4a; border-radius: 4px; color: var(--muted); cursor: pointer; }
 .file-picker:hover { border-color: var(--accent); color: var(--ink); }
 .file-picker input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .sound-name { margin: 10px 0; }
 .audio-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .primary { color: #111; background: var(--accent); border-color: var(--accent); font-weight: 700; }
-.status { min-height: 1.4em; margin: 8px 0 0; color: var(--accent); }
 .tool-symbol { display: inline-block; flex: 0 0 auto; width: 10px; height: 10px; border: 2px solid #eee; }
 .symbol-source { border-color: var(--accent); border-radius: 50%; background: var(--accent); }
 .symbol-listener { border-radius: 50%; background: transparent; }
