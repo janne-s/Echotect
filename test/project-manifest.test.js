@@ -7,8 +7,8 @@ const manifest = () => createProjectManifest({
   source: { latitude: 60, longitude: 24 }, listener: { latitude: 60.001, longitude: 24 },
   reflectors: [{ id: 'r1', latitude: 60, longitude: 24.001, levelDb: -6, material: 'inherit', effectiveMaterial: 'generic' }],
   globalReflectionLevelDb: -6, globalMaterial: 'generic', pointsLinked: false, heading: 0,
-  echoArea: { enabled: false, radiusMetres: 100, activeSurfaceCount: 0 },
-  echoField: { durationSeconds: 10, maxBounces: 32, earlyPathLimit: 512, cutoffDb: -90, fdnTailSeconds: 8, lateMode: 'convolution' }, inputName: 'handclap', inputDurationSeconds: .23
+  echoField: { enabled: false, radiusMetres: 100, activeSurfaceCount: 0 },
+  echoFieldSettings: { durationSeconds: 10, maxBounces: 32, earlyPathLimit: 512, cutoffDb: -90, fdnTailSeconds: 8, lateMode: 'convolution' }, inputName: 'handclap', inputDurationSeconds: .23
 });
 
 test('manifest 1.0.0 round-trips as JSON and validates', () => {

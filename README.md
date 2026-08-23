@@ -22,9 +22,11 @@ optional Max for Live device.
 - Late responses are deterministic and derive their timing, attenuation, and
   stereo energy from the active geometry.
 
-The project manifest identifies itself as `echotect-project` schema `1.0.0`.
+The project manifest identifies itself as `echotect-project` schema `1.1.0`.
 Geometry and settings are authoritative; exported path times, levels, and
-azimuths form a reproducible snapshot for other tools.
+azimuths form a reproducible snapshot for other tools. `derived.direct` and
+`derived.earlyPaths` state the level of every arrival, so a consumer reproduces
+Echotect levels without repeating the distance and material calculations.
 
 WAV exports are stereo, 48 kHz, 32-bit IEEE floating point. Echotect does not
 normalize, limit, quantize, clip, truncate, or shift them silently. Convolution

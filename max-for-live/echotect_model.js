@@ -3,8 +3,8 @@
     "use strict";
 
     var FORMAT = "echotect-project";
-    var VERSION = "1.0.0";
-    // Echotect 1.0.0 allows 4096 early paths plus the direct arrival.
+    var VERSION = "1.1.0";
+    // Echotect allows 4096 early paths plus the direct arrival.
     // Max poly~ banks are split below their per-instance 1023 voice limit.
     var MAX_VOICES = 4097;
 
@@ -55,6 +55,7 @@
         requireFinite(errors, manifest.geometry.listener.headingDegrees, "geometry.listener.headingDegrees");
         requireFinite(errors, manifest.derived.direct.propagationSeconds, "derived.direct.propagationSeconds");
         requireFinite(errors, manifest.derived.direct.pathMetres, "derived.direct.pathMetres");
+        requireFinite(errors, manifest.derived.direct.levelDb, "derived.direct.levelDb");
         requireFinite(errors, manifest.derived.direct.arrivalAzimuthDegrees, "derived.direct.arrivalAzimuthDegrees");
 
         for (var i = 0; i < manifest.derived.earlyPaths.length; i++) {
@@ -67,19 +68,14 @@
         return errors;
     }
 
-    function directGain(pathMetres) {
-        if (pathMetres <= 0.01) return 0.8;
-        return Math.max(0.18, Math.min(0.72, 140 / Math.max(140, pathMetres)));
-    }
-
     function pathsFromManifest(manifest) {
         var direct = manifest.derived.direct;
         var paths = [{
             id: "direct",
             kind: "direct",
             propagationSeconds: direct.propagationSeconds,
-            levelGain: directGain(direct.pathMetres),
-            levelDb: 20 * Math.log(directGain(direct.pathMetres)) / Math.LN10,
+            levelGain: dbToGain(direct.levelDb),
+            levelDb: direct.levelDb,
             arrivalAzimuthDegrees: direct.arrivalAzimuthDegrees,
             pathMetres: direct.pathMetres
         }];

@@ -22,7 +22,8 @@
   <link rel="canonical" href="https://janne-s.github.io/Echotect/">
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css"
+    integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="anonymous">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -55,7 +56,7 @@
         </button>
         <button type="button" data-tool="reflector"><span class="tool-symbol symbol-reflector" aria-hidden="true"></span>Add reflector</button>
         <button id="buildings-button" type="button" aria-pressed="false" title="Load building data">Buildings</button>
-        <button id="echo-area-button" type="button" aria-pressed="false" title="Load Buildings first" disabled>Echo field</button>
+        <button id="echo-field-button" type="button" aria-pressed="false" title="Load building data first" disabled>Echo field</button>
         <button id="echo-settings-button" class="icon-button" type="button" aria-label="Echo field settings" title="Echo field settings">⚙</button>
       </div>
     </section>
@@ -87,7 +88,7 @@
               <span id="heading-arrow" class="heading-arrow" aria-hidden="true">↑</span>
             </span>
           </span>
-          <input id="listener-heading" type="range" min="0" max="359" step="1" value="0">
+          <input id="listener-heading" type="range" step="1">
         </label>
         <div class="audio-actions">
           <button id="play-button" class="primary" type="button">Play impulse</button>
@@ -116,7 +117,7 @@
         </div>
         <label class="level-control global-level">
           <span>Global reflection level <output id="global-level-value">−6 dB</output></span>
-          <input id="global-level" type="range" min="-18" max="-1" step="1" value="-6">
+          <input id="global-level" type="range" step="1">
         </label>
         <div id="reflection-list" class="reflection-list"></div>
         <p id="empty-reflections" class="empty-state">Add at least one reflector to see its distances and propagation time.</p>
@@ -140,17 +141,17 @@
       <h2 id="echo-settings-title">Echo field settings</h2>
       <div class="settings-grid">
         <label><span>Late field</span><select id="setting-late-mode"><option value="convolution">Convolution</option><option value="fdn">Feedback network</option></select></label>
-        <label data-late-mode="convolution"><span>Response duration</span><span class="settings-control"><input id="setting-duration" type="range" min="1" max="30" step="1"><output id="setting-duration-value"></output></span></label>
-        <label><span>Active surfaces</span><span class="settings-control"><input id="setting-surfaces" type="range" min="8" max="256" step="1"><output id="setting-surfaces-value"></output></span></label>
-        <label><span>Early path limit</span><span class="settings-control"><input id="setting-early-paths" type="range" min="32" max="4096" step="32"><output id="setting-early-paths-value"></output></span></label>
-        <label data-late-mode="convolution"><span>Late path samples</span><span class="settings-control"><input id="setting-late-walks" type="range" min="256" max="32768" step="256"><output id="setting-late-walks-value"></output></span></label>
-        <label><span>Maximum bounces</span><span class="settings-control"><input id="setting-bounces" type="range" min="2" max="64" step="1"><output id="setting-bounces-value"></output></span></label>
-        <label><span>Cutoff level</span><span class="settings-control"><input id="setting-cutoff" type="range" min="-120" max="-30" step="1"><output id="setting-cutoff-value"></output></span></label>
-        <label data-late-mode="convolution"><span>Tail persistence</span><span class="settings-control"><input id="setting-persistence" type="range" min="0.1" max="1" step="0.05"><output id="setting-persistence-value"></output></span></label>
-        <label data-late-mode="fdn"><span>Tail length</span><span class="settings-control"><input id="setting-fdn-tail" type="range" min="1" max="30" step="0.5"><output id="setting-fdn-tail-value"></output></span></label>
-        <label data-late-mode="fdn"><span>Density</span><span class="settings-control"><input id="setting-fdn-density" type="range" min="0.1" max="1" step="0.05"><output id="setting-fdn-density-value"></output></span></label>
-        <label data-late-mode="fdn"><span>Damping</span><span class="settings-control"><input id="setting-fdn-damping" type="range" min="0.1" max="1" step="0.05"><output id="setting-fdn-damping-value"></output></span></label>
-        <label data-late-mode="fdn"><span>Geometry influence</span><span class="settings-control"><input id="setting-geometry-influence" type="range" min="0" max="1" step="0.05"><output id="setting-geometry-influence-value"></output></span></label>
+        <label data-late-mode="convolution"><span>Response duration</span><span class="settings-control"><input id="setting-duration" type="range"><output id="setting-duration-value"></output></span></label>
+        <label><span>Echo field surfaces</span><span class="settings-control"><input id="setting-surfaces" type="range"><output id="setting-surfaces-value"></output></span></label>
+        <label><span>Early path limit</span><span class="settings-control"><input id="setting-early-paths" type="range"><output id="setting-early-paths-value"></output></span></label>
+        <label data-late-mode="convolution"><span>Late path samples</span><span class="settings-control"><input id="setting-late-walks" type="range"><output id="setting-late-walks-value"></output></span></label>
+        <label><span>Late field bounces</span><span class="settings-control"><input id="setting-bounces" type="range"><output id="setting-bounces-value"></output></span></label>
+        <label><span>Cutoff level</span><span class="settings-control"><input id="setting-cutoff" type="range"><output id="setting-cutoff-value"></output></span></label>
+        <label data-late-mode="convolution"><span>Tail persistence</span><span class="settings-control"><input id="setting-persistence" type="range"><output id="setting-persistence-value"></output></span></label>
+        <label data-late-mode="fdn"><span>Tail length</span><span class="settings-control"><input id="setting-fdn-tail" type="range"><output id="setting-fdn-tail-value"></output></span></label>
+        <label data-late-mode="fdn"><span>Density</span><span class="settings-control"><input id="setting-fdn-density" type="range"><output id="setting-fdn-density-value"></output></span></label>
+        <label data-late-mode="fdn"><span>Damping</span><span class="settings-control"><input id="setting-fdn-damping" type="range"><output id="setting-fdn-damping-value"></output></span></label>
+        <label data-late-mode="fdn"><span>Geometry influence</span><span class="settings-control"><input id="setting-geometry-influence" type="range"><output id="setting-geometry-influence-value"></output></span></label>
       </div>
       <div class="modal-actions">
         <button value="cancel" type="submit">Cancel</button>
@@ -178,8 +179,10 @@
     </form>
   </dialog>
 
-  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-  <script src="https://unpkg.com/pmtiles@4.4.1/dist/pmtiles.js"></script>
+  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"
+    integrity="sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/pmtiles@4.4.1/dist/pmtiles.js"
+    integrity="sha384-iS2/cbFYol4NsEeda4mW6N/8wPMOT6pv2eY+GNYSJRqVC4nbJECP1+mg6D2T8wT/" crossorigin="anonymous"></script>
   <script type="module" src="src/app.js"></script>
 </body>
 </html>

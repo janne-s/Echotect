@@ -13,7 +13,13 @@ html, body { height: 100%; }
 body { margin: 0; background: #0e0e0e; color: var(--ink); font-size: 13px; }
 button, input { font: inherit; }
 button { cursor: pointer; }
-button:disabled { cursor: wait; opacity: .6; }
+button:disabled, input:disabled, select:disabled { cursor: not-allowed; opacity: .6; }
+button[aria-busy="true"] { cursor: wait; }
+button[aria-busy="true"]::after {
+  display: inline-block; width: 8px; height: 8px; border: 1px solid currentColor;
+  border-right-color: transparent; border-radius: 50%; content: ""; animation: loading-spin .7s linear infinite;
+}
+@keyframes loading-spin { to { transform: rotate(360deg); } }
 .brand-actions { display: flex; align-items: center; gap: 10px; }
 .brand-actions #export-button { padding-inline: 12px; }
 
@@ -30,8 +36,12 @@ h2 { margin-bottom: 8px; font-size: .9rem; font-weight: 600; }
 .search button { display: inline-flex; align-items: center; gap: 6px; border-radius: 0; white-space: nowrap; }
 .search button:first-of-type { border-radius: 0 2px 2px 0; }
 .search button:last-child { margin-left: 4px; border-radius: 2px; }
-.search button:disabled { cursor: wait; opacity: .6; }
-button:hover, button:focus-visible { border-color: var(--accent); }
+button:hover { border-color: var(--accent); }
+/* Focus is drawn inside the element so the indicator can never overlap a neighbour. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+input[type="checkbox"]:focus-visible, input[type="range"]:focus-visible { outline-offset: 2px; }
+/* A text field matches :focus-visible even when clicked, so it tints its own edge instead. */
+.search input:focus, .export-name input:focus { outline: none; border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 305px; height: calc(100% - 56px); }
 .map-panel { position: relative; min-height: 420px; }
@@ -39,13 +49,7 @@ button:hover, button:focus-visible { border-color: var(--accent); }
 .map-tools { position: absolute; z-index: 2; left: 9px; top: 9px; display: flex; flex-wrap: wrap; gap: 5px; }
 .map-tools button { display: inline-flex; align-items: center; gap: 7px; background: #171717ee; }
 .map-tools .icon-button { justify-content: center; width: 28px; padding-inline: 0; font-size: .9rem; }
-.map-tools button.active { color: #111; background: var(--accent); border-color: var(--accent); }
-.map-tools button[aria-pressed="true"] { color: #111; background: var(--accent); border-color: var(--accent); }
-.map-tools button[aria-busy="true"]::after {
-  width: 8px; height: 8px; border: 1px solid currentColor; border-right-color: transparent;
-  border-radius: 50%; content: ""; animation: loading-spin .7s linear infinite;
-}
-@keyframes loading-spin { to { transform: rotate(360deg); } }
+.map-tools button.active, .map-tools button[aria-pressed="true"] { color: #111; background: var(--accent); border-color: var(--accent); }
 .map-tools button.active .tool-symbol { border-color: #111; }
 .map-tools button.active .symbol-source { background: #111; }
 .side-panel { overflow-y: auto; border-left: 1px solid var(--line); background: var(--panel); }
@@ -58,7 +62,6 @@ button:hover, button:focus-visible { border-color: var(--accent); }
   max-width: 104px; border: 0; border-radius: 0; padding: 2px 14px 2px 3px;
   color: var(--muted); background: #1d1d1d; font: .68rem/1.3 ui-monospace, monospace;
 }
-.reflection h3 { display: inline-flex; align-items: center; gap: 7px; }
 .link-points { color: var(--accent); }
 .link-points[aria-pressed="true"] { border-color: var(--accent); color: #111; background: var(--accent); }
 .link-points[aria-pressed="true"] .symbol-source { border-color: #111; background: #111; }
@@ -71,7 +74,7 @@ button:hover, button:focus-visible { border-color: var(--accent); }
 .reflection-list { display: grid; }
 .reflection { padding: 7px 0; }
 .reflection header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.reflection h3 { flex: 1; margin: 0; font-size: .84rem; }
+.reflection h3 { display: inline-flex; flex: 1; align-items: center; gap: 7px; margin: 0; font-size: .84rem; }
 .reflection button { padding: 2px 7px; border: 0; color: var(--accent); background: transparent; }
 .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 8px; }
 .metric span { display: block; color: var(--muted); font-size: .68rem; }
@@ -93,10 +96,6 @@ button:hover, button:focus-visible { border-color: var(--accent); }
 .audio-actions { display: grid; grid-template-columns: 1.15fr 1fr .9fr; gap: 6px; }
 .primary { color: #111; background: var(--accent); border-color: var(--accent); font-weight: 700; }
 .audio-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
-.audio-actions button[aria-busy="true"]::after {
-  width: 8px; height: 8px; border: 1px solid currentColor; border-right-color: transparent;
-  border-radius: 50%; content: ""; animation: loading-spin .7s linear infinite;
-}
 .modal {
   width: min(330px, calc(100vw - 24px)); padding: 0; border: 1px solid var(--line);
   border-radius: 2px; background: #181818; color: var(--ink);
@@ -124,10 +123,10 @@ button:hover, button:focus-visible { border-color: var(--accent); }
 .export-list span { display: flex; flex: 1; justify-content: space-between; gap: 12px; }
 .export-list strong { font-size: .76rem; }
 .export-list small { color: var(--muted); font: .7rem/1.4 ui-monospace, monospace; }
-.export-contract { margin: 10px 0 4px !important; }
-.export-field-note { margin-bottom: 4px !important; color: #c8a4b6 !important; }
-.export-summary { margin-bottom: 12px !important; color: var(--ink) !important; font-family: ui-monospace, monospace; }
-.export-error { color: #ff8abf !important; }
+.export-modal .export-contract { margin: 10px 0 4px; }
+.export-modal .export-field-note { margin-bottom: 4px; color: #c8a4b6; }
+.export-modal .export-summary { margin-bottom: 12px; color: var(--ink); font-family: ui-monospace, monospace; }
+.export-modal .export-error { color: #ff8abf; }
 .tool-symbol { display: inline-block; flex: 0 0 auto; width: 10px; height: 10px; border: 2px solid #eee; }
 .symbol-source { border-color: var(--accent); border-radius: 50%; background: var(--accent); }
 .symbol-listener { border-radius: 50%; background: transparent; }
@@ -140,7 +139,7 @@ button:hover, button:focus-visible { border-color: var(--accent); }
   display: grid; place-items: center; border: 3px solid #111; border-radius: 50%;
   background: #eee; color: #111; font: 800 10px/1 ui-monospace, monospace;
 }
-.echo-area-handle {
+.echo-field-handle {
   width: 16px; height: 16px; border: 3px solid #111; border-radius: 50%;
   background: var(--accent); cursor: ew-resize;
 }

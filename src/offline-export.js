@@ -1,42 +1,31 @@
-import { buildReflectionPaths, gainToDecibels, reflectionPathGain } from './audio-model.js';
+import { createDirectArrivalEvent, createEarlyArrivalEvents } from './arrivals.js';
+import { SOURCE_ONSET_GAIN } from './audio-model.js';
+import { exportFrameLayout, fdnResponseSeconds, lateFieldGain } from './export-layout.js';
 import { createFdnConfiguration } from './fdn.js';
-import { directSoundMetrics, hasDistinctDirectArrival, reflectionPathMetrics } from './geo.js';
 import { synthesizeLateReverb } from './late-reverb.js';
-import { hrtfPosition } from './spatial.js';
+import { equalPowerGains, stereoPan } from './spatial.js';
 import { WAV_SAMPLE_RATE } from './wav.js';
 
-export const EXPORT_LEVEL_POLICY = Object.freeze({ normalization: false, clipping: false, limiter: false });
+/** One-pole damping applied to every FDN tap before it is fed back. */
+const FDN_DAMPING_COEFFICIENT = .94;
+/** Excitation and output trims that keep the FDN network below full scale without limiting. */
+const FDN_INPUT_GAIN_MINIMUM = .12;
+const FDN_INPUT_GAIN_DENSITY_RANGE = .2;
+const FDN_OUTPUT_GAIN = .16;
+/** Minimum reflector count before a recursive late field exists at all. */
+const LATE_FIELD_MINIMUM_REFLECTORS = 2;
 
 const stereo = length => [new Float32Array(length), new Float32Array(length)];
-const panGains = pan => [Math.sqrt((1 - pan) / 2), Math.sqrt((1 + pan) / 2)];
-
-export function createDirectArrivalEvent({ source, listener, sampleRate = WAV_SAMPLE_RATE }) {
-  const metrics = directSoundMetrics(source, listener);
-  return {
-    frame: hasDistinctDirectArrival(source, listener) ? Math.round(metrics.propagationSeconds * sampleRate) : 0,
-    gain: hasDistinctDirectArrival(source, listener) ? Math.max(.18, Math.min(.72, 140 / Math.max(140, metrics.pathMetres))) : .8,
-    emitter: source
-  };
-}
-
-export function createEarlyArrivalEvents({ source, listener, reflectors, settings, sampleRate = WAV_SAMPLE_RATE }) {
-  return buildReflectionPaths(reflectors, { maxBounces: Math.min(2, settings.maxBounces), maxPaths: settings.earlyPathLimit, thresholdDb: settings.cutoffDb }).flatMap(path => {
-    const metrics = reflectionPathMetrics(source, listener, path);
-    const attenuation = Math.max(.12, Math.min(.65, 140 / Math.max(140, metrics.pathMetres)));
-    const gain = reflectionPathGain(attenuation, path);
-    return gainToDecibels(gain) < settings.cutoffDb ? [] : [{ frame: Math.round(metrics.propagationSeconds * sampleRate), gain, emitter: path.at(-1), reflectorIds: path.map(reflector => reflector.id) }];
-  });
-}
 
 function addMono(channels, mono, startFrame, gain, pan) {
-  const gains = panGains(Math.max(-1, Math.min(1, pan)));
+  const gains = equalPowerGains(pan);
   for (let frame = 0; frame < mono.length && startFrame + frame < channels[0].length; frame += 1) {
     channels[0][startFrame + frame] += mono[frame] * gain * gains[0];
     channels[1][startFrame + frame] += mono[frame] * gain * gains[1];
   }
 }
 
-function addStereo(target, source, startFrame = 0, gain = 1) {
+export function addStereo(target, source, startFrame = 0, gain = 1) {
   source.forEach((channel, channelIndex) => {
     for (let frame = 0; frame < channel.length && startFrame + frame < target[channelIndex].length; frame += 1) {
       target[channelIndex][startFrame + frame] += channel[frame] * gain;
@@ -65,11 +54,12 @@ export function renderFdnImpulse(configuration, frameCount) {
   const buffers = configuration.delaySamples.map(length => new Float32Array(length));
   const indices = configuration.delaySamples.map(() => 0);
   const filtered = configuration.delaySamples.map(() => 0);
+  const inputGain = FDN_INPUT_GAIN_MINIMUM + configuration.density * FDN_INPUT_GAIN_DENSITY_RANGE;
   for (let frame = 0; frame < frameCount; frame += 1) {
     const dry = frame === 0 ? 1 : 0;
     const taps = buffers.map((buffer, index) => {
       const value = buffer[indices[index]];
-      filtered[index] += (value - filtered[index]) * (1 - configuration.damping * .94);
+      filtered[index] += (value - filtered[index]) * (1 - configuration.damping * FDN_DAMPING_COEFFICIENT);
       return filtered[index];
     });
     const mixed = taps.slice();
@@ -78,37 +68,33 @@ export function renderFdnImpulse(configuration, frameCount) {
       mixed[start + index] = a + b; mixed[start + index + span] = a - b;
     }
     buffers.forEach((buffer, index) => {
-      buffer[indices[index]] = dry * (.12 + configuration.density * .2) * (index % 2 ? -1 : 1)
+      buffer[indices[index]] = dry * inputGain * (index % 2 ? -1 : 1)
         + mixed[index] / Math.sqrt(mixed.length) * configuration.feedback[index];
       indices[index] = (indices[index] + 1) % buffer.length;
-      output[0][frame] += taps[index] * configuration.outputGains[index][0] * .16;
-      output[1][frame] += taps[index] * configuration.outputGains[index][1] * .16;
+      output[0][frame] += taps[index] * configuration.outputGains[index][0] * FDN_OUTPUT_GAIN;
+      output[1][frame] += taps[index] * configuration.outputGains[index][1] * FDN_OUTPUT_GAIN;
     });
   }
   return output;
 }
 
 async function convolve(inputMono, impulse, frameCount, sampleRate) {
-  if (typeof OfflineAudioContext !== 'undefined') {
-    const context = new OfflineAudioContext(2, frameCount, sampleRate);
-    const source = context.createBufferSource();
-    source.buffer = context.createBuffer(1, inputMono.length, sampleRate);
-    source.buffer.copyToChannel(inputMono, 0);
-    const convolver = context.createConvolver();
-    convolver.normalize = false;
-    convolver.buffer = context.createBuffer(2, impulse[0].length, sampleRate);
-    impulse.forEach((channel, index) => convolver.buffer.copyToChannel(channel, index));
-    source.connect(convolver).connect(context.destination);
-    source.start(0);
-    const rendered = await context.startRendering();
-    const output = [new Float32Array(rendered.getChannelData(0)), new Float32Array(rendered.getChannelData(1))];
-    const expectedSignal = inputMono.some(Boolean) && impulse.some(channel => channel.some(Boolean));
-    if (!expectedSignal || output.some(channel => channel.some(Boolean))) return output;
-    return convolveFft(inputMono, impulse, frameCount);
-  }
-  const output = stereo(frameCount);
-  for (let inputFrame = 0; inputFrame < inputMono.length; inputFrame += 1) if (inputMono[inputFrame]) addStereo(output, impulse, inputFrame, inputMono[inputFrame]);
-  return output;
+  if (typeof OfflineAudioContext === 'undefined') return convolveFft(inputMono, impulse, frameCount);
+  const context = new OfflineAudioContext(2, frameCount, sampleRate);
+  const source = context.createBufferSource();
+  source.buffer = context.createBuffer(1, inputMono.length, sampleRate);
+  source.buffer.copyToChannel(inputMono, 0);
+  const convolver = context.createConvolver();
+  convolver.normalize = false;
+  convolver.buffer = context.createBuffer(2, impulse[0].length, sampleRate);
+  impulse.forEach((channel, index) => convolver.buffer.copyToChannel(channel, index));
+  source.connect(convolver).connect(context.destination);
+  source.start(0);
+  const rendered = await context.startRendering();
+  const output = [new Float32Array(rendered.getChannelData(0)), new Float32Array(rendered.getChannelData(1))];
+  const expectedSignal = inputMono.some(Boolean) && impulse.some(channel => channel.some(Boolean));
+  if (!expectedSignal || output.some(channel => channel.some(Boolean))) return output;
+  return convolveFft(inputMono, impulse, frameCount);
 }
 
 function fft(real, imaginary, inverse = false) {
@@ -163,6 +149,7 @@ export function convolveFft(inputMono, impulse, frameCount) {
   });
 }
 
+/** Early reflections are single samples, so the sparse impulse side is the cheap loop to walk. */
 function convolveSparse(inputMono, impulse, frameCount) {
   const output = stereo(frameCount);
   impulse.forEach((channel, channelIndex) => {
@@ -177,43 +164,101 @@ function convolveSparse(inputMono, impulse, frameCount) {
   return output;
 }
 
-export async function renderExportAudio({ source, listener, reflectors, heading, settings, distanceMetres, inputMono, sampleRate = WAV_SAMPLE_RATE }) {
-  const responseSeconds = settings.durationSeconds;
-  const fdnSeconds = settings.fdnTailSeconds * 1.25;
-  const earlyEvents = createEarlyArrivalEvents({ source, listener, reflectors, settings, sampleRate });
-  const latestEarlyFrame = earlyEvents.reduce((latest, event) => Math.max(latest, event.frame), 0);
-  const irFrames = Math.max(Math.ceil(responseSeconds * sampleRate), earlyEvents.length ? latestEarlyFrame + 1 : 0);
-  const fdnFrames = Math.max(Math.ceil(fdnSeconds * sampleRate), earlyEvents.length ? latestEarlyFrame + 1 : 0);
-  const earlyIr = stereo(irFrames);
-  const sourcePan = settings.spatialAudio === false ? 0 : hrtfPosition(listener, source, heading)?.x ?? 0;
-  for (const event of earlyEvents) {
-    const pan = settings.spatialAudio === false ? 0 : hrtfPosition(listener, event.emitter, heading)?.x ?? 0;
-    addMono(earlyIr, new Float32Array([1]), event.frame, event.gain, pan);
-  }
-  const lateIr = synthesizeLateReverb({ sampleRate, source, listener, reflectors, heading, distanceMetres, durationSeconds: responseSeconds, maxBounces: settings.maxBounces, walkCount: settings.lateWalks, cutoffDb: settings.cutoffDb, decayScale: 1.1 - settings.tailPersistence, spatialAudio: settings.spatialAudio !== false });
-  const convolutionIr = stereo(irFrames);
-  addStereo(convolutionIr, earlyIr);
-  addStereo(convolutionIr, lateIr, 0, .7);
-  const fdnConfiguration = createFdnConfiguration({ sampleRate, source, listener, reflectors, heading, distanceMetres, tailSeconds: settings.fdnTailSeconds, density: settings.fdnDensity, damping: settings.fdnDamping, geometryInfluence: settings.geometryInfluence });
-  if (settings.spatialAudio === false) fdnConfiguration.outputGains = fdnConfiguration.outputGains.map(() => [Math.SQRT1_2, Math.SQRT1_2]);
-  const fdnLateIr = reflectors.length >= 2 ? renderFdnImpulse(fdnConfiguration, fdnFrames) : stereo(fdnFrames);
-  const fdnIr = stereo(fdnFrames);
-  addStereo(fdnIr, earlyIr);
-  addStereo(fdnIr, fdnLateIr, 0, .65);
+/** Everything a full project export writes. Preview asks for one of these instead. */
+export const EXPORT_OUTPUTS = Object.freeze(['convolutionIr', 'fdnIr', 'wet', 'direct', 'directArrival', 'early', 'late']);
 
-  const lateForRender = settings.lateMode === 'fdn' ? fdnLateIr : lateIr;
+const once = build => {
+  let value;
+  return () => (value ??= build());
+};
+
+/**
+ * Renders the requested outputs and nothing else: a preview that only needs the wet mix never pays
+ * for the impulse responses or the stems, and a convolution late field never renders the FDN.
+ */
+export async function renderExportAudio({ source, listener, reflectors, heading, settings, distanceMetres, inputMono, sampleRate = WAV_SAMPLE_RATE, outputs = EXPORT_OUTPUTS }) {
+  const wanted = new Set(outputs);
+  const spatialAudio = settings.spatialAudio !== false;
+  const earlyEvents = createEarlyArrivalEvents({ source, listener, reflectors, settings, sampleRate });
   const directEvent = createDirectArrivalEvent({ source, listener, sampleRate });
-  const directFrame = directEvent.frame;
-  const timelineFrames = Math.max(1, inputMono.length + Math.max(irFrames, fdnFrames) - 1, directFrame + inputMono.length);
-  const directArrival = stereo(timelineFrames);
-  addMono(directArrival, inputMono, directFrame, directEvent.gain, sourcePan);
-  const direct = stereo(timelineFrames);
-  if (directFrame > 0) addMono(direct, inputMono, 0, .8, 0);
-  addStereo(direct, directArrival);
-  const early = convolveSparse(inputMono, earlyIr, timelineFrames);
-  const late = await convolve(inputMono, lateForRender, timelineFrames, sampleRate);
-  const lateGain = settings.lateMode === 'fdn' ? .65 : .7;
-  late.forEach(channel => channel.forEach((value, frame) => { channel[frame] = value * lateGain; }));
-  const wet = stereo(timelineFrames); addStereo(wet, directArrival); addStereo(wet, early); addStereo(wet, late);
-  return { convolutionIr, fdnIr, wet, direct, directArrival, early, late, sampleRate, responseSeconds, fdnSeconds, timelineSeconds: timelineFrames / sampleRate };
+  const { convolutionIrFrames, fdnIrFrames, timelineFrames } = exportFrameLayout({
+    settings, earlyFrames: earlyEvents.map(event => event.frame), directFrame: directEvent.frame, inputFrames: inputMono.length, sampleRate
+  });
+
+  const earlyIr = once(() => {
+    const channels = stereo(convolutionIrFrames);
+    const impulse = new Float32Array([1]);
+    for (const event of earlyEvents) {
+      addMono(channels, impulse, event.frame, event.gain, stereoPan(listener, event.emitter, heading, spatialAudio));
+    }
+    return channels;
+  });
+
+  const convolutionLateIr = once(() => synthesizeLateReverb({
+    sampleRate, source, listener, reflectors, heading, distanceMetres, durationSeconds: settings.durationSeconds,
+    maxBounces: settings.maxBounces, walkCount: settings.lateWalks, cutoffDb: settings.cutoffDb,
+    decayScale: 1.1 - settings.tailPersistence, spatialAudio
+  }));
+
+  const fdnLateIr = once(() => {
+    if (reflectors.length < LATE_FIELD_MINIMUM_REFLECTORS) return stereo(fdnIrFrames);
+    const configuration = createFdnConfiguration({
+      sampleRate, source, listener, reflectors, heading, distanceMetres, tailSeconds: settings.fdnTailSeconds,
+      density: settings.fdnDensity, damping: settings.fdnDamping, geometryInfluence: settings.geometryInfluence
+    });
+    if (!spatialAudio) configuration.outputGains = configuration.outputGains.map(() => [Math.SQRT1_2, Math.SQRT1_2]);
+    return renderFdnImpulse(configuration, fdnIrFrames);
+  });
+
+  const selectedLateIr = () => settings.lateMode === 'fdn' ? fdnLateIr() : convolutionLateIr();
+
+  const directArrival = once(() => {
+    const channels = stereo(timelineFrames);
+    addMono(channels, inputMono, directEvent.frame, directEvent.gain, stereoPan(listener, source, heading, spatialAudio));
+    return channels;
+  });
+
+  const rendered = {
+    sampleRate,
+    responseSeconds: settings.durationSeconds,
+    fdnSeconds: fdnResponseSeconds(settings),
+    timelineSeconds: timelineFrames / sampleRate
+  };
+
+  if (wanted.has('convolutionIr')) {
+    const channels = stereo(convolutionIrFrames);
+    addStereo(channels, earlyIr());
+    addStereo(channels, convolutionLateIr(), 0, lateFieldGain('convolution'));
+    rendered.convolutionIr = channels;
+  }
+  if (wanted.has('fdnIr')) {
+    const channels = stereo(fdnIrFrames);
+    addStereo(channels, earlyIr());
+    addStereo(channels, fdnLateIr(), 0, lateFieldGain('fdn'));
+    rendered.fdnIr = channels;
+  }
+  if (wanted.has('direct')) {
+    const channels = stereo(timelineFrames);
+    if (directEvent.frame > 0) addMono(channels, inputMono, 0, SOURCE_ONSET_GAIN, 0);
+    addStereo(channels, directArrival());
+    rendered.direct = channels;
+  }
+  if (wanted.has('directArrival')) rendered.directArrival = directArrival();
+
+  const early = wanted.has('early') || wanted.has('wet') ? convolveSparse(inputMono, earlyIr(), timelineFrames) : null;
+  let late = null;
+  if (wanted.has('late') || wanted.has('wet')) {
+    late = await convolve(inputMono, selectedLateIr(), timelineFrames, sampleRate);
+    const gain = lateFieldGain(settings.lateMode);
+    for (const channel of late) for (let frame = 0; frame < channel.length; frame += 1) channel[frame] *= gain;
+  }
+  if (wanted.has('early')) rendered.early = early;
+  if (wanted.has('late')) rendered.late = late;
+  if (wanted.has('wet')) {
+    const channels = stereo(timelineFrames);
+    addStereo(channels, directArrival()); addStereo(channels, early); addStereo(channels, late);
+    rendered.wet = channels;
+  }
+
+  return rendered;
 }

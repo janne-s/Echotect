@@ -10,7 +10,10 @@ var manifest = null;
 var paths = [];
 var omittedPathCount = 0;
 var VOICES_PER_BANK = 1023;
-var BANK_COUNT = 5;
+var BANK_COUNT = Math.ceil(EchotectModel.MAX_VOICES / VOICES_PER_BANK);
+// Scale reaches 4x, so a delay line must hold four times its propagation time plus a margin.
+var MAXIMUM_SCALE = 4;
+var DELAY_CAPACITY_MARGIN_MS = 100;
 var controls = {
     headingDegrees: 0,
     scale: 1,
@@ -86,7 +89,7 @@ function emitAll(resizeDelayMemory, updateMuteState) {
         if (updateMuteState) outlet(1, ["bank", bank, "mute", localVoice, active ? 0 : 1]);
         if (!active) continue;
         outlet(1, ["bank", bank, "target", localVoice]);
-        if (resizeDelayMemory) outlet(1, ["bank", bank, "capacity", Math.max(100, paths[i].propagationSeconds * 4000 + 100)]);
+        if (resizeDelayMemory) outlet(1, ["bank", bank, "capacity", DELAY_CAPACITY_MARGIN_MS + paths[i].propagationSeconds * 1000 * MAXIMUM_SCALE]);
         outlet(1, ["bank", bank, "config", config.delayMilliseconds].concat(config.outputGains));
         outlet(2, ["path", i, paths[i].kind, paths[i].arrivalAzimuthDegrees, paths[i].propagationSeconds * controls.scale, paths[i].levelDb]);
     }
@@ -100,7 +103,7 @@ function setControl(name, value) {
 }
 
 function heading(value) { setControl("headingDegrees", Number(value)); }
-function scale(value) { setControl("scale", Math.max(0.01, Math.min(4, Number(value)))); }
+function scale(value) { setControl("scale", Math.max(0.01, Math.min(MAXIMUM_SCALE, Number(value)))); }
 function width(value) { setControl("widthPercent", Math.max(0, Math.min(200, Number(value)))); }
 function direct_enable(value) { setControl("directEnabled", Number(value) !== 0); }
 function reflections_enable(value) { setControl("reflectionsEnabled", Number(value) !== 0); }
