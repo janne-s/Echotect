@@ -5,6 +5,8 @@ Listener, and Reflectors define propagation paths that can be auditioned in the
 browser, saved as an editable project, exported as audio, or opened in the
 optional Max for Live device.
 
+See it live: [**https://janne-s.github.io/Echotect/**](https://janne-s.github.io/Echotect/)
+
 ![Echotect interface](assets/screenshot.jpg)
 
 ## How it works
