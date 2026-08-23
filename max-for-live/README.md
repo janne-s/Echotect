@@ -11,6 +11,8 @@ are active, and mix the result with the input signal.
 
 The device is functional, but still rudimentary and under development.
 
+![Echotect Field interface in all its glory](../assets/ss_echotectfield.png)
+
 ## Using the device
 
 1. Create a Source, Listener, and Reflectors in Echotect.
