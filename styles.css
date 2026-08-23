@@ -22,6 +22,11 @@ button[aria-busy="true"]::after {
 @keyframes loading-spin { to { transform: rotate(360deg); } }
 .brand-actions { display: flex; align-items: center; gap: 10px; }
 .brand-actions #export-button { padding-inline: 12px; }
+.github-link {
+  display: grid; width: 30px; height: 30px; place-items: center; color: var(--ink);
+}
+.github-link:hover { color: var(--accent); }
+.github-link svg { width: 20px; height: 20px; fill: currentColor; }
 
 .topbar {
   min-height: 56px; display: flex; align-items: center; justify-content: space-between;
