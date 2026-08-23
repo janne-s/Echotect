@@ -1,114 +1,48 @@
 # Echotect
 
-Echotect is a browser-based tool for designing musical echoes with real-world
-map geometry. A Source, Listener, and Reflectors define travel distances that
-are converted into propagation times and audible delay taps.
+Echotect turns real-world map geometry into musical delay structures. A Source,
+Listener, and Reflectors define propagation paths that can be auditioned in the
+browser, saved as an editable project, exported as audio, or opened in the
+optional Max for Live device.
 
-The application is designed to run as a static GitHub Pages site. It will
-support immediate Web Audio preview with a built-in recorded handclap and
-local import of a user's own audio file. Max for Live integration uses a
-versioned JSON Space file and is optional for browser use.
+## Audio conventions
 
-## Planned stack
+- Geometry is two-dimensional and distances are measured in metres. Propagation
+  time uses an explicit speed of sound of 343 metres per second.
+- Direct arrival is calculated from Source to Listener. Reflections use the
+  complete Source → Reflector path(s) → Listener distance.
+- Source onset, propagated direct arrival, early reflections, and late field are
+  separate events.
+- Listener heading uses compass degrees with north at 0°. Direct arrives from
+  the Source direction; each reflection arrives from its final Reflector.
+- Canonical spatial stereo uses deterministic equal-power panning. The optional
+  browser HRTF mode is monitor-only and does not alter project or WAV exports.
+- Late responses are deterministic and derive their timing, attenuation, and
+  stereo energy from the active geometry.
 
-- HTML and CSS
-- native JavaScript ES modules
-- MapLibre GL JS
-- OpenStreetMap-compatible map tiles
-- optional Overture Maps building geometry delivered as PMTiles
-- Web Audio API
-- File API for local audio import
-- versioned JSON Space import and export
+The project manifest identifies itself as `echotect-project` schema `1.0.0`.
+Geometry and settings are authoritative; exported path times, levels, and
+azimuths form a reproducible snapshot for other tools.
 
-No backend, database, account system, or secret client-side API key is required
-for the current version. All deployable application files belong here.
-The built-in default sound is `assets/handclap.wav` (48 kHz, 24-bit stereo PCM).
+WAV exports are stereo, 48 kHz, 32-bit IEEE floating point. Echotect does not
+normalize, limit, quantize, clip, truncate, or shift them silently. Convolution
+and rendered FDN IRs contain early and late reflections without direct arrival.
+Wet contains direct, early, and late. Direct, early, and late stems share the
+same start and duration.
 
-## Development
+## Max for Live
 
-The initial application should remain directly publishable as static files.
-Because JavaScript modules and browser file/audio APIs are restricted under
-`file://`, serve the directory with a small local static server while developing.
+[Echotect Field](max-for-live/README.md) imports the project manifest as a
+real-time spatial multi-tap delay. Heading rotates the listener, Scale changes
+propagation times continuously, Width transforms relative azimuths, and Paths
+sets the deterministic share of early paths processed by the device.
 
-GitHub Pages must be tested using a repository subpath, so application asset
-references should be relative rather than rooted at `/`.
+Stereo uses Main 1/2. Quad uses Front 3/4 and Rear 5/6, with an optional stereo
+monitor on Main 1/2. IR and WAV exports remain ordinary portable files and do
+not require Max for Live or Ableton Live.
 
-## Status
+## Data attribution
 
-The first complete browser version provides the map workspace, place and pasted
-coordinate search, editable Source/Listener/Reflector points, distance and
-propagation-time display, and Web Audio preview. One reflector produces one
-reflected impulse. Multiple reflectors form an interacting echo field through
-paths such as Source → R1 → R2 → Listener. Consecutive self-reflection is
-excluded and paths below −90 dB are omitted. Browser preview renders up to two
-bounces as discrete early reflections and synthesizes later randomized geometry
-walks into a deterministic ten-second stereo impulse response processed by a
-native Web Audio ConvolverNode. A global reflection-level control
-shifts all reflector levels together, while every reflector can also be adjusted
-individually. Deterministic equal-power stereo places direct sound in the Source
-direction and every reflection path in the direction of its final Reflector.
-Listener heading is adjustable in compass degrees, with north as the 0°
-reference. Preview and WAV export use the same rendered sample buffers.
-The Panning selector can instead enable **HRTF · live only** for native browser
-headphone monitoring; this monitor spatialization intentionally does not alter
-the deterministic stereo WAV exports.
-**Recover audio** closes the active AudioContext and stops its pending audio so
-playback can recover without a page reload.
-
-Building geometry is an optional layer and is not requested on application
-load. Select **Buildings** to load Overture Maps building footprints for the
-current viewport, then use **Add reflector** on a building to snap the reflector
-to its nearest facade segment. When `facade_material` is available it becomes
-that reflector's material; otherwise the global material is inherited. The
-compact selector beside **Reflection field** sets the global material, and each
-reflector header can override it. Material attenuation is added to the editable
-reflection level when the echo field is rendered.
-
-After Buildings has loaded, **Echo area** creates an automatic reflection field
-around the Listener. Drag the pink handle on the circle to set its radius. The
-circle follows the Listener, and moving the Source or Listener recalculates the
-available specular reflection points on nearby facade segments. By default, up
-to 48 distance- and reflection-type-ranked surfaces become active audio reflectors.
-Visible front-facing walls that
-do not receive an exact specular hit are included as diffuse reflections with
-an additional −9 dB attenuation. Source-to-wall and wall-to-Listener paths are
-checked against the loaded building edges, while back-facing walls are rejected.
-A `+` in the button count means
-the area contained additional candidates. The gear beside **Echo area** opens
-advanced field settings for response duration, active surfaces, early paths,
-late path samples, maximum bounces, cutoff level, and Tail persistence. The Late
-field selector can replace convolution with a musical Feedback Delay Network.
-Its Tail length, Density, Damping, and Geometry influence controls tune the
-network while retaining the mapped environment as its delay source. Both modes
-are rendered through the same offline path for preview and export. In
-Convolution mode, higher Tail persistence values create
-longer reverb tails. Defaults are
-512 early paths, 8,192 bounded late geometry walks, 32 bounces, and a −90 dB
-cutoff.
-Manual reflectors remain available alongside the automatic field.
-
-The current reflection field and listening settings are stored locally in the
-browser and restored after a reload. This includes Source, Listener,
-Reflectors, point linking, reflection levels, materials, listener heading,
-Arrivals only monitoring, and Panning mode. Imported audio files require a new user
-selection after reload, and the optional Buildings layer is never restored
-automatically.
-
-The single **Export** action opens a compact selection dialog with browser-side
-size estimates. It exports a versioned Echotect project manifest, stereo
-Convolution IR, rendered FDN IR, wet render, and sample-aligned direct, early,
-and late stems. A single file downloads directly; multiple files are packaged
-as an uncompressed ZIP in the browser. WAV exports are explicitly stereo,
-48 kHz, 32-bit IEEE float, with no normalization, limiter, clipping, or hidden
-timing offset. See [the export format](Doc/export-format.md).
-
-Ableton Extension and Max for Live support remain future optional integrations.
-All JSON and WAV exports work without Ableton.
-
-## Building data
-
-Building footprints currently come from the public Overture Open Buildings
-PMTiles archive hosted by Source Cooperative. Overture building data is
-licensed under ODbL; attribution is displayed by the map. Because facade
-material is optional source metadata, Echotect always retains a manual material
-choice and a neutral Generic fallback.
+Map and building layers retain their required attribution in the application.
+OpenStreetMap data is © OpenStreetMap contributors. Overture Maps building data
+is licensed under ODbL.

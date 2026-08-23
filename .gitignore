@@ -6,3 +6,5 @@
 node_modules/
 dist/
 coverage/
+max-for-live/Build/
+max-for-live/*.amxd
