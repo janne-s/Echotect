@@ -23,7 +23,12 @@ const map = new maplibregl.Map({
       id: 'osm',
       type: 'raster',
       source: 'osm',
-      paint: { 'raster-saturation': -1, 'raster-contrast': .08, 'raster-brightness-max': .82 }
+      paint: {
+        'raster-saturation': -1,
+        'raster-contrast': .22,
+        'raster-brightness-min': .02,
+        'raster-brightness-max': .46
+      }
     }]
   }
 });
