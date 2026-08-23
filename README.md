@@ -43,8 +43,25 @@ Stereo uses Main 1/2. Quad uses Front 3/4 and Rear 5/6, with an optional stereo
 monitor on Main 1/2. IR and WAV exports remain ordinary portable files and do
 not require Max for Live or Ableton Live.
 
+Max4Live device is rather rudimentary at the moment, but functional.
+
 ## Data attribution
 
 Map and building layers retain their required attribution in the application.
 OpenStreetMap data is © OpenStreetMap contributors. Overture Maps building data
 is licensed under ODbL.
+
+## Support Echotect
+
+If you find Echotect useful, you can support its continued development:
+
+- **GitHub Sponsors** — support the open-source work, updates, and future
+  improvements directly.
+  [Become a GitHub Sponsor](https://github.com/sponsors/janne-s)
+- **Ko-fi** — make a one-off contribution to support the project.
+  [Support on Ko-fi](https://ko-fi.com/jannesarkela)
+
+Thank you for supporting independent open-source audio tools.
+
+See [**Sanara Creations**](https://www.sanaracreations.fi/) for my
+multidisciplinary work, both independently and in collaboration with others.
