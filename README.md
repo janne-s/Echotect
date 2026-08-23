@@ -5,6 +5,8 @@ Listener, and Reflectors define propagation paths that can be auditioned in the
 browser, saved as an editable project, exported as audio, or opened in the
 optional Max for Live device.
 
+![Echotect interface](assets/screenshot.jpg)
+
 ## Audio conventions
 
 - Geometry is two-dimensional and distances are measured in metres. Propagation
