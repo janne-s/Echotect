@@ -63,3 +63,17 @@ export function reflectionMetrics(source, listener, reflector) {
     propagationSeconds: pathMetres / SPEED_OF_SOUND_METRES_PER_SECOND
   };
 }
+
+export function reflectionPathMetrics(source, listener, reflectors) {
+  let pathMetres = 0;
+  let previous = source;
+  reflectors.forEach(reflector => {
+    pathMetres += distanceMetres(previous, reflector);
+    previous = reflector;
+  });
+  pathMetres += distanceMetres(previous, listener);
+  return {
+    pathMetres,
+    propagationSeconds: pathMetres / SPEED_OF_SOUND_METRES_PER_SECOND
+  };
+}

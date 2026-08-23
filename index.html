@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Echotect muuttaa todellisen maailman karttageometrian kuultaviksi kaiuiksi.">
+  <meta name="description" content="Echotect turns real-world map geometry into audible echoes.">
   <title>Echotect</title>
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
@@ -19,6 +19,10 @@
       <label class="sr-only" for="location-input">Search for a place or enter coordinates</label>
       <input id="location-input" type="search" placeholder="Place, 60.1699, 24.9384, or Maps link" autocomplete="off">
       <button type="submit">Search</button>
+      <button id="locate-button" type="button" title="Use browser location">
+        <span aria-hidden="true">◎</span>
+        <span>Locate me</span>
+      </button>
     </form>
   </header>
 
@@ -29,33 +33,18 @@
         <button type="button" data-tool="source"><span class="tool-symbol symbol-source" aria-hidden="true"></span>Set source</button>
         <button type="button" data-tool="listener"><span class="tool-symbol symbol-listener" aria-hidden="true"></span>Set listener</button>
         <button id="link-points" class="link-points" type="button" aria-pressed="false">
-          <span class="link-symbol" aria-hidden="true">↔</span>
-          <span class="link-label">Link source + listener</span>
+          <span class="link-label">Link</span>
+          <span class="tool-symbol symbol-source" aria-hidden="true"></span>
+          <span class="tool-symbol symbol-listener" aria-hidden="true"></span>
         </button>
         <button type="button" data-tool="reflector"><span class="tool-symbol symbol-reflector" aria-hidden="true"></span>Add reflector</button>
+        <button id="buildings-button" type="button" aria-pressed="false" title="Load building data">Buildings</button>
+        <button id="echo-area-button" type="button" aria-pressed="false" title="Load Buildings first" disabled>Echo field</button>
+        <button id="echo-settings-button" class="icon-button" type="button" aria-label="Echo field settings" title="Echo field settings">⚙</button>
       </div>
     </section>
 
     <aside class="side-panel">
-      <section>
-        <div class="section-heading">
-          <div>
-            <h2>Reflection field</h2>
-          </div>
-          <button id="clear-reflectors" class="text-button" type="button">Clear</button>
-        </div>
-        <dl class="points">
-          <div><dt><span class="tool-symbol symbol-source" aria-hidden="true"></span>Source</dt><dd id="source-coordinates">–</dd></div>
-          <div><dt><span class="tool-symbol symbol-listener" aria-hidden="true"></span>Listener</dt><dd id="listener-coordinates">–</dd></div>
-        </dl>
-        <div class="direct-path">
-          <span>Direct sound</span>
-          <strong id="direct-sound-metrics">–</strong>
-        </div>
-        <div id="reflection-list" class="reflection-list"></div>
-        <p id="empty-reflections" class="empty-state">Add at least one reflector to see its distances and propagation time.</p>
-      </section>
-
       <section class="audio-section">
         <h2>Listen to the geometry</h2>
         <label class="file-picker">
@@ -63,15 +52,96 @@
           <input id="audio-file" type="file" accept="audio/*">
         </label>
         <p id="sound-name" class="sound-name">Sound: Echotect handclap</p>
+        <label class="solo-control">
+          <input id="reflections-solo" type="checkbox">
+          <span>Reflections solo</span>
+        </label>
+        <label class="solo-control">
+          <input id="spatial-audio" type="checkbox" checked>
+          <span>Spatial audio (HRTF)</span>
+        </label>
+        <label class="level-control heading-control">
+          <span>
+            Listener heading
+            <span class="heading-readout">
+              <output id="heading-value">0°</output>
+              <span id="heading-arrow" class="heading-arrow" aria-hidden="true">↑</span>
+            </span>
+          </span>
+          <input id="listener-heading" type="range" min="0" max="359" step="1" value="0">
+        </label>
         <div class="audio-actions">
           <button id="play-button" class="primary" type="button">Play impulse</button>
           <button id="default-sound" type="button">Use handclap</button>
+          <button id="reset-audio" type="button" title="Restart the audio engine if playback stops working.">Recover audio</button>
         </div>
+      </section>
+
+      <section>
+        <div class="section-heading">
+          <h2>Reflection field</h2>
+          <label class="compact-select">
+            <span class="sr-only">Global material</span>
+            <select id="global-material" title="Global material">
+              <option value="generic">Generic</option>
+              <option value="concrete">Concrete</option>
+              <option value="glass">Glass</option>
+              <option value="brick">Brick</option>
+              <option value="stone">Stone</option>
+              <option value="metal">Metal</option>
+              <option value="wood">Wood</option>
+              <option value="vegetation">Vegetation</option>
+            </select>
+          </label>
+          <button id="clear-reflectors" class="text-button" type="button">Clear</button>
+        </div>
+        <label class="level-control global-level">
+          <span>Global reflection level <output id="global-level-value">−6 dB</output></span>
+          <input id="global-level" type="range" min="-18" max="-1" step="1" value="-6">
+        </label>
+        <div id="reflection-list" class="reflection-list"></div>
+        <p id="empty-reflections" class="empty-state">Add at least one reflector to see its distances and propagation time.</p>
       </section>
     </aside>
   </main>
 
+  <dialog id="confirmation-dialog" class="modal" tabindex="-1" aria-labelledby="confirmation-title" aria-describedby="confirmation-message">
+    <form method="dialog">
+      <h2 id="confirmation-title">Confirm action</h2>
+      <p id="confirmation-message"></p>
+      <div class="modal-actions">
+        <button value="cancel" type="submit">Cancel</button>
+        <button id="confirmation-submit" class="primary" value="confirm" type="submit">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="echo-settings-dialog" class="modal settings-modal" tabindex="-1" aria-labelledby="echo-settings-title">
+    <form method="dialog">
+      <h2 id="echo-settings-title">Echo field settings</h2>
+      <div class="settings-grid">
+        <label><span>Late field</span><select id="setting-late-mode"><option value="convolution">Convolution</option><option value="fdn">Feedback network</option></select></label>
+        <label data-late-mode="convolution"><span>Response duration</span><span class="settings-control"><input id="setting-duration" type="range" min="1" max="30" step="1"><output id="setting-duration-value"></output></span></label>
+        <label><span>Active surfaces</span><span class="settings-control"><input id="setting-surfaces" type="range" min="8" max="256" step="1"><output id="setting-surfaces-value"></output></span></label>
+        <label><span>Early path limit</span><span class="settings-control"><input id="setting-early-paths" type="range" min="32" max="4096" step="32"><output id="setting-early-paths-value"></output></span></label>
+        <label data-late-mode="convolution"><span>Late path samples</span><span class="settings-control"><input id="setting-late-walks" type="range" min="256" max="32768" step="256"><output id="setting-late-walks-value"></output></span></label>
+        <label><span>Maximum bounces</span><span class="settings-control"><input id="setting-bounces" type="range" min="2" max="64" step="1"><output id="setting-bounces-value"></output></span></label>
+        <label><span>Cutoff level</span><span class="settings-control"><input id="setting-cutoff" type="range" min="-120" max="-30" step="1"><output id="setting-cutoff-value"></output></span></label>
+        <label data-late-mode="convolution"><span>Tail persistence</span><span class="settings-control"><input id="setting-persistence" type="range" min="0.1" max="1" step="0.05"><output id="setting-persistence-value"></output></span></label>
+        <label data-late-mode="fdn"><span>Tail length</span><span class="settings-control"><input id="setting-fdn-tail" type="range" min="1" max="30" step="0.5"><output id="setting-fdn-tail-value"></output></span></label>
+        <label data-late-mode="fdn"><span>Density</span><span class="settings-control"><input id="setting-fdn-density" type="range" min="0.1" max="1" step="0.05"><output id="setting-fdn-density-value"></output></span></label>
+        <label data-late-mode="fdn"><span>Damping</span><span class="settings-control"><input id="setting-fdn-damping" type="range" min="0.1" max="1" step="0.05"><output id="setting-fdn-damping-value"></output></span></label>
+        <label data-late-mode="fdn"><span>Geometry influence</span><span class="settings-control"><input id="setting-geometry-influence" type="range" min="0" max="1" step="0.05"><output id="setting-geometry-influence-value"></output></span></label>
+      </div>
+      <div class="modal-actions">
+        <button value="cancel" type="submit">Cancel</button>
+        <button class="primary" value="save" type="submit">Save settings</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/pmtiles@4.4.1/dist/pmtiles.js"></script>
   <script type="module" src="src/app.js"></script>
 </body>
 </html>
