@@ -1,15 +1,32 @@
 # Echotect Field for Max for Live
 
-Echotect Field is the optional real-time delay companion for Echotect. It reads
-an `echotect-project` JSON manifest at schema version `1.0.0` and maps its direct
-arrival and early reflection paths to a spatial multi-tap delay. Every arrival
-level, time, and azimuth is read from the manifest; the device derives none of
-them again. The browser application and its JSON/WAV exports remain fully
-usable without Max for Live.
+Echotect Field brings Echotect reflection patterns into Ableton Live as a
+real-time spatial delay. Export a JSON project manifest from Echotect, load it
+into the device, and the direct sound and reflection paths are recreated from
+the geometry calculated by Echotect.
 
-Manifest levels are the 1 kHz octave-band reference for each arrival. Portable
-WAV exports contain the full atmospheric and material coloration; this initial
-Max device remains a broadband delay-tap renderer.
+The imported pattern can then be shaped while Live is running. You can change
+its timing, rotate and widen the spatial field, choose how many reflection paths
+are active, and mix the result with the input signal.
+
+The device is functional, but still rudimentary and under development.
+
+## Using the device
+
+1. Create a Source, Listener, and Reflectors in Echotect.
+2. Export the project manifest as a JSON file.
+3. Load Echotect Field on a track in Ableton Live.
+4. Import the exported JSON file into the device.
+
+The main controls are:
+
+- **Paths** — Chooses how many of the imported reflection paths are active.
+- **Scale** — Expands or contracts the timing of the imported pattern.
+- **Heading** — Rotates the listening direction.
+- **Width** — Narrows or widens the spatial spread.
+- **Direct** — Adjusts the propagated direct sound.
+- **Reflections** — Adjusts the reflected sound.
+- **Dry/Wet** — Balances the input and processed sound.
 
 ## Contents
 
@@ -37,39 +54,5 @@ Echotect controller loaded
 Echotect field UI loaded
 ```
 
-Choose **Freeze Device** before saving the distributable AMXD. The frozen
-device must collect the controller, model, field UI, and voice patcher. AMXD
-binaries are release artifacts and are not committed here during development.
-
-## Audio and routing
-
-- `Dry` is the undelayed stereo input.
-- `Direct` is the propagated direct arrival.
-- `Reflections` contains the selected early paths in manifest order.
-- `Paths` selects a deterministic 0–100% share of imported early paths; voices
-  above the active count are DSP-muted.
-- `Scale` continuously multiplies propagation time and intentionally retains
-  moving-delay/Doppler behaviour.
-- `Heading` rotates the listener against absolute arrival azimuths.
-- `Width` contracts or expands relative azimuths.
-- Dry/Wet uses an equal-power crossfade.
-- Quad panning uses equal-power interpolation between FL, FR, RL, and RR.
-
-Output layouts:
-
-- Stereo: Main 1/2; Front 3/4 and Rear 5/6 are silent.
-- Quad: Front 3/4 and Rear 5/6.
-- Quad Monitor optionally folds the quad result into Main 1/2 and is off by
-  default to prevent duplication.
-
-## Verification
-
-Run the model tests from this directory:
-
-```sh
-node --test test/model.test.js
-```
-
-In Live, verify JSON import, reported path count, Paths CPU scaling, Heading,
-continuous Scale, Direct and Reflections controls, Dry/Wet, Stereo Main 1/2,
-Quad Front 3/4, Quad Rear 5/6, and the optional Quad Monitor.
+Choose **Freeze Device** before saving the distributable AMXD so that its
+required components are included with the device.

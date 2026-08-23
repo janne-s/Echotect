@@ -58,16 +58,14 @@ responses, a wet render, or aligned stems.
 
 ## Max for Live
 
-[Echotect Field](max-for-live/README.md) imports the project manifest as a
-real-time spatial multi-tap delay. Heading rotates the listener, Scale changes
-propagation times continuously, Width transforms relative azimuths, and Paths
-sets the deterministic share of early paths processed by the device.
+[Echotect Field](max-for-live/README.md) brings an Echotect project into Ableton
+Live. Export a JSON project manifest from Echotect and import it into the device
+to recreate its direct sound and reflection delays. The device provides
+real-time controls for timing, direction, width, path count, and the balance
+between the input and reflected sound.
 
-Stereo uses Main 1/2. Quad uses Front 3/4 and Rear 5/6, with an optional stereo
-monitor on Main 1/2. IR and WAV exports remain ordinary portable files and do
-not require Max for Live or Ableton Live.
-
-Max4Live device is rather rudimentary at the moment, but functional.
+The Max for Live device is functional, but still rudimentary and under
+development.
 
 ## Data attribution
 
