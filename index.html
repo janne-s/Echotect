@@ -12,8 +12,9 @@
 </head>
 <body>
   <header class="topbar">
-    <div>
+    <div class="brand-actions">
       <h1>Echotect</h1>
+      <button id="export-button" class="primary" type="button">Export</button>
     </div>
     <form id="search-form" class="search" role="search">
       <label class="sr-only" for="location-input">Search for a place or enter coordinates</label>
@@ -51,14 +52,17 @@
           <span>Choose your own sound</span>
           <input id="audio-file" type="file" accept="audio/*">
         </label>
-        <p id="sound-name" class="sound-name">Sound: Echotect handclap</p>
+        <p id="sound-name" class="sound-name">Sound: handclap.wav</p>
         <label class="solo-control">
-          <input id="reflections-solo" type="checkbox">
-          <span>Reflections solo</span>
+          <input id="arrivals-only" type="checkbox">
+          <span>Arrivals only</span>
         </label>
-        <label class="solo-control">
-          <input id="spatial-audio" type="checkbox" checked>
-          <span>Spatial audio (HRTF)</span>
+        <label class="panning-control">
+          <span>Panning</span>
+          <select id="panning-mode">
+            <option value="spatial-stereo">Spatial stereo</option>
+            <option value="hrtf-live">HRTF · live only</option>
+          </select>
         </label>
         <label class="level-control heading-control">
           <span>
@@ -137,6 +141,25 @@
         <button value="cancel" type="submit">Cancel</button>
         <button class="primary" value="save" type="submit">Save settings</button>
       </div>
+    </form>
+  </dialog>
+
+  <dialog id="export-dialog" class="modal export-modal" tabindex="-1" aria-labelledby="export-title">
+    <form id="export-form" method="dialog">
+      <div class="section-heading"><h2 id="export-title">Export project</h2><button id="export-all" class="text-button" type="button">Select all</button></div>
+      <label class="export-name"><span>Project name</span><input id="export-project-name" required maxlength="80"></label>
+      <div class="export-list">
+        <label><input type="checkbox" name="export-item" value="manifest" checked><span><strong>Project manifest</strong><small id="export-size-manifest"></small></span></label>
+        <label><input type="checkbox" name="export-item" value="convolution" checked><span><strong>Convolution IR</strong><small id="export-size-convolution"></small></span></label>
+        <label><input type="checkbox" name="export-item" value="fdn" checked><span><strong>Rendered FDN IR</strong><small id="export-size-fdn"></small></span></label>
+        <label><input type="checkbox" name="export-item" value="wet" checked><span><strong>Wet render</strong><small id="export-size-wet"></small></span></label>
+        <label><input type="checkbox" name="export-item" value="stems" checked><span><strong>Aligned stems</strong><small id="export-size-stems"></small></span></label>
+      </div>
+      <p class="export-contract">Stereo · 48 kHz · 32-bit float · no normalization or clipping</p>
+      <p id="export-field-note" class="export-field-note"></p>
+      <p id="export-summary" class="export-summary"></p>
+      <p id="export-error" class="export-error" role="alert" hidden></p>
+      <div class="modal-actions"><button value="cancel" type="submit">Cancel</button><button id="export-submit" class="primary" value="export" type="submit">Export selected</button></div>
     </form>
   </dialog>
 

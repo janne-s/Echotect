@@ -5,7 +5,7 @@ map geometry. A Source, Listener, and Reflectors define travel distances that
 are converted into propagation times and audible delay taps.
 
 The application is designed to run as a static GitHub Pages site. It will
-support immediate Web Audio preview with a built-in handclap-like sound and
+support immediate Web Audio preview with a built-in recorded handclap and
 local import of a user's own audio file. Max for Live integration uses a
 versioned JSON Space file and is optional for browser use.
 
@@ -22,6 +22,7 @@ versioned JSON Space file and is optional for browser use.
 
 No backend, database, account system, or secret client-side API key is required
 for the current version. All deployable application files belong here.
+The built-in default sound is `assets/handclap.wav` (48 kHz, 24-bit stereo PCM).
 
 ## Development
 
@@ -44,12 +45,15 @@ bounces as discrete early reflections and synthesizes later randomized geometry
 walks into a deterministic ten-second stereo impulse response processed by a
 native Web Audio ConvolverNode. A global reflection-level control
 shifts all reflector levels together, while every reflector can also be adjusted
-individually. Native Web Audio HRTF spatialization places direct sound in the
-Source direction and every reflection path in the direction of its final
-Reflector. Listener heading is adjustable in compass degrees, with north as the
-0° reference. **Recover audio** closes the active AudioContext, stops its pending
-audio, and clears the convolution cache so playback can recover without a page
-reload.
+individually. Deterministic equal-power stereo places direct sound in the Source
+direction and every reflection path in the direction of its final Reflector.
+Listener heading is adjustable in compass degrees, with north as the 0°
+reference. Preview and WAV export use the same rendered sample buffers.
+The Panning selector can instead enable **HRTF · live only** for native browser
+headphone monitoring; this monitor spatialization intentionally does not alter
+the deterministic stereo WAV exports.
+**Recover audio** closes the active AudioContext and stops its pending audio so
+playback can recover without a page reload.
 
 Building geometry is an optional layer and is not requested on application
 load. Select **Buildings** to load Overture Maps building footprints for the
@@ -73,10 +77,11 @@ A `+` in the button count means
 the area contained additional candidates. The gear beside **Echo area** opens
 advanced field settings for response duration, active surfaces, early paths,
 late path samples, maximum bounces, cutoff level, and Tail persistence. The Late
-field selector can replace convolution with a musical Feedback Delay Network
-running in an AudioWorklet. Its Tail length, Density, Damping, and Geometry
-influence controls tune the network while retaining the mapped environment as
-its delay source. In Convolution mode, higher Tail persistence values create
+field selector can replace convolution with a musical Feedback Delay Network.
+Its Tail length, Density, Damping, and Geometry influence controls tune the
+network while retaining the mapped environment as its delay source. Both modes
+are rendered through the same offline path for preview and export. In
+Convolution mode, higher Tail persistence values create
 longer reverb tails. Defaults are
 512 early paths, 8,192 bounded late geometry walks, 32 bounces, and a −90 dB
 cutoff.
@@ -85,12 +90,20 @@ Manual reflectors remain available alongside the automatic field.
 The current reflection field and listening settings are stored locally in the
 browser and restored after a reload. This includes Source, Listener,
 Reflectors, point linking, reflection levels, materials, listener heading,
-Reflections solo, and Spatial audio. Imported audio files require a new user
+Arrivals only monitoring, and Panning mode. Imported audio files require a new user
 selection after reload, and the optional Buildings layer is never restored
 automatically.
 
-Space file exchange and Max for Live support are planned additions to later
-complete versions.
+The single **Export** action opens a compact selection dialog with browser-side
+size estimates. It exports a versioned Echotect project manifest, stereo
+Convolution IR, rendered FDN IR, wet render, and sample-aligned direct, early,
+and late stems. A single file downloads directly; multiple files are packaged
+as an uncompressed ZIP in the browser. WAV exports are explicitly stereo,
+48 kHz, 32-bit IEEE float, with no normalization, limiter, clipping, or hidden
+timing offset. See [the export format](Doc/export-format.md).
+
+Ableton Extension and Max for Live support remain future optional integrations.
+All JSON and WAV exports work without Ableton.
 
 ## Building data
 

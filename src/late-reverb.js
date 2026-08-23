@@ -32,7 +32,7 @@ function addArrival(channels, sample, amplitude, pan, random) {
   });
 }
 
-export function synthesizeLateReverb({ sampleRate, source, listener, reflectors, heading, distanceMetres, durationSeconds = 10, maxBounces = 32, walkCount = 8192, cutoffDb = -90, decayScale = .5 }) {
+export function synthesizeLateReverb({ sampleRate, source, listener, reflectors, heading, distanceMetres, durationSeconds = 10, maxBounces = 32, walkCount = 8192, cutoffDb = -90, decayScale = .5, spatialAudio = true }) {
   const length = Math.ceil(sampleRate * durationSeconds);
   const channels = [new Float32Array(length), new Float32Array(length)];
   if (reflectors.length < 2) return channels;
@@ -50,7 +50,7 @@ export function synthesizeLateReverb({ sampleRate, source, listener, reflectors,
       if (bounce >= 2) {
         const distanceGain = Math.min(1, 140 / Math.max(140, travelledMetres));
         const position = hrtfPosition(listener, current, heading);
-        addArrival(channels, Math.round(arrivalSeconds * sampleRate), energy * distanceGain / Math.sqrt(boundedWalkCount), Math.max(-1, Math.min(1, position?.x ?? 0)), random);
+        addArrival(channels, Math.round(arrivalSeconds * sampleRate), energy * distanceGain / Math.sqrt(boundedWalkCount), spatialAudio ? Math.max(-1, Math.min(1, position?.x ?? 0)) : 0, random);
       }
 
       let next = current;
@@ -64,14 +64,5 @@ export function synthesizeLateReverb({ sampleRate, source, listener, reflectors,
     }
   }
 
-  const peak = channels.reduce((maximum, channel) => channel.reduce((channelMaximum, value) => Math.max(channelMaximum, Math.abs(value)), maximum), 0);
-  if (peak > .35) channels.forEach(channel => channel.forEach((value, index) => { channel[index] = value * .35 / peak; }));
   return channels;
-}
-
-export function createLateReverbBuffer(context, options) {
-  const channels = synthesizeLateReverb({ ...options, sampleRate: context.sampleRate });
-  const buffer = context.createBuffer(2, channels[0].length, context.sampleRate);
-  channels.forEach((channel, index) => buffer.copyToChannel(channel, index));
-  return buffer;
 }

@@ -1,15 +1,18 @@
-import { directSoundMetrics, distanceMetres, hasDistinctDirectArrival, parseCoordinates, reflectionMetrics, reflectionPathMetrics } from './geo.js';
-import { buildReflectionPaths, gainToDecibels, reflectionPathGain } from './audio-model.js';
+import { directSoundMetrics, distanceMetres, parseCoordinates, reflectionMetrics, reflectionPathMetrics } from './geo.js';
+import { buildReflectionPaths } from './audio-model.js';
 import { hrtfPosition } from './spatial.js';
 import { effectiveMaterial, MATERIAL_ATTENUATION_DB, MATERIAL_LABELS, normalizeFacadeMaterial } from './materials.js';
 import { edgeKey, wallReflectionCandidate } from './echo-geometry.js';
-import { createFdnConfiguration } from './fdn.js';
+import { createDirectArrivalEvent, createEarlyArrivalEvents, renderExportAudio, resampleToMono } from './offline-export.js';
+import { createProjectManifest, validateProjectManifest } from './project-manifest.js';
+import { encodeFloat32Wav, wavByteLength, WAV_SAMPLE_RATE } from './wav.js';
+import { zipStore } from './zip.js';
 
 const OVERTURE_BUILDINGS_URL = 'pmtiles://https://data.source.coop/cholmes/overture/overture-buildings.pmtiles';
 const ACCENT_COLOR = '#ff4fae';
 const BUILDING_LAYER_IDS = ['overture-building-fill', 'overture-building-line'];
 const MAP_VIEW_STORAGE_KEY = 'echotect:map-view:v1';
-const WORKSPACE_STORAGE_KEY = 'echotect:workspace:v1';
+const WORKSPACE_STORAGE_KEY = 'echotect:workspace:v4';
 const materialValues = new Set(Object.keys(MATERIAL_LABELS));
 const DEFAULT_ECHO_FIELD_SETTINGS = Object.freeze({
   durationSeconds: 10,
@@ -25,6 +28,7 @@ const DEFAULT_ECHO_FIELD_SETTINGS = Object.freeze({
   fdnDamping: .55,
   geometryInfluence: .7
 });
+const DEFAULT_HANDCLAP_DURATION_SECONDS = 0.2003125;
 const clamp = (value, minimum, maximum, fallback) => Math.max(minimum, Math.min(maximum, Number.isFinite(value) ? value : fallback));
 
 const validPoint = point => Number.isFinite(point?.latitude) && point.latitude >= -90 && point.latitude <= 90
@@ -47,6 +51,7 @@ function storedMapView() {
 }
 
 const initial = {
+  project: { id: crypto.randomUUID(), name: 'Echotect Project', createdAt: new Date().toISOString() },
   source: { latitude: 60.16955, longitude: 24.9369 },
   listener: { latitude: 60.1707, longitude: 24.9410 },
   reflectors: [{ id: crypto.randomUUID(), latitude: 60.1721, longitude: 24.9384 }]
@@ -57,6 +62,8 @@ function storedWorkspace() {
     const saved = JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY));
     if (!validPoint(saved?.source) || !validPoint(saved?.listener) || !Array.isArray(saved?.reflectors)) return null;
     return {
+      project: typeof saved.project?.id === 'string' && typeof saved.project?.name === 'string' && typeof saved.project?.createdAt === 'string'
+        ? saved.project : { id: crypto.randomUUID(), name: 'Echotect Project', createdAt: new Date().toISOString() },
       source: saved.source,
       listener: saved.listener,
       reflectors: saved.reflectors.filter(validPoint).map(reflector => ({
@@ -74,8 +81,8 @@ function storedWorkspace() {
       globalMaterial: materialValues.has(saved.globalMaterial) && saved.globalMaterial !== 'inherit' ? saved.globalMaterial : 'generic',
       settings: {
         heading: Math.max(0, Math.min(359, Number.isFinite(saved.settings?.heading) ? saved.settings.heading : 0)),
-        reflectionsSolo: Boolean(saved.settings?.reflectionsSolo),
-        spatialAudio: saved.settings?.spatialAudio !== false,
+        arrivalsOnly: Boolean(saved.settings?.arrivalsOnly),
+        panningMode: saved.settings?.panningMode === 'spatial-stereo' ? 'spatial-stereo' : 'hrtf-live',
         echoAreaRadiusMetres: Math.max(10, Number.isFinite(saved.settings?.echoAreaRadiusMetres) ? saved.settings.echoAreaRadiusMetres : 100),
         echoField: {
           durationSeconds: clamp(saved.settings?.echoField?.durationSeconds, 1, 30, DEFAULT_ECHO_FIELD_SETTINGS.durationSeconds),
@@ -100,9 +107,10 @@ function storedWorkspace() {
 
 const state = storedWorkspace() ?? structuredClone(initial);
 state.pointsLinked ??= false;
+state.project ??= { id: crypto.randomUUID(), name: 'Echotect Project', createdAt: new Date().toISOString() };
 state.globalReflectionLevelDb ??= -6;
 state.globalMaterial ??= 'generic';
-state.settings ??= { heading: 0, reflectionsSolo: false, spatialAudio: true, echoAreaRadiusMetres: 100, echoField: { ...DEFAULT_ECHO_FIELD_SETTINGS } };
+state.settings ??= { heading: 0, arrivalsOnly: false, panningMode: 'hrtf-live', echoAreaRadiusMetres: 100, echoField: { ...DEFAULT_ECHO_FIELD_SETTINGS } };
 state.settings.echoAreaRadiusMetres ??= 100;
 state.settings.echoField ??= { ...DEFAULT_ECHO_FIELD_SETTINGS };
 state.buildingsVisible = false;
@@ -113,16 +121,14 @@ state.reflectors.forEach(reflector => {
 let activeTool = null;
 let audioContext;
 let importedAudioBuffer = null;
+let importedAudioName = null;
+let defaultHandclapBuffer = null;
 let lastSearchAt = 0;
 let hoveredBuildingEdge = null;
 let automaticReflectors = [];
 let echoAreaEnabled = false;
 let echoAreaHandle = null;
 let echoAreaUpdateTimer = null;
-let lateReverbCache = null;
-let lateReverbWorker = null;
-let rejectLateReverbWorker = null;
-let fdnWorkletContext = null;
 
 const protocol = new pmtiles.Protocol();
 maplibregl.addProtocol('pmtiles', protocol.tile);
@@ -173,6 +179,7 @@ function saveWorkspace() {
   try {
     localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify({
       source: state.source,
+      project: state.project,
       listener: state.listener,
       reflectors: state.reflectors,
       pointsLinked: state.pointsLinked,
@@ -191,8 +198,8 @@ $('#global-material').value = state.globalMaterial;
 $('#listener-heading').value = state.settings.heading;
 $('#heading-value').textContent = `${state.settings.heading}°`;
 $('#heading-arrow').style.transform = `rotate(${state.settings.heading}deg)`;
-$('#reflections-solo').checked = state.settings.reflectionsSolo;
-$('#spatial-audio').checked = state.settings.spatialAudio;
+$('#arrivals-only').checked = state.settings.arrivalsOnly;
+$('#panning-mode').value = state.settings.panningMode;
 
 function markerElement(type, label = '') {
   const element = document.createElement('div');
@@ -337,6 +344,8 @@ function formatDistance(metres) {
 function render() {
   $('#link-points').setAttribute('aria-pressed', String(state.pointsLinked));
   $('.link-label').textContent = state.pointsLinked ? 'Unlink' : 'Link';
+  $('#arrivals-only').disabled = state.pointsLinked;
+  $('#arrivals-only').title = state.pointsLinked ? 'Trigger and direct arrival are the same event while points are linked.' : 'Mute the source-onset trigger and monitor arriving sound only.';
   const list = $('#reflection-list');
   list.replaceChildren();
   $('#empty-reflections').hidden = audibleReflectors().length > 0;
@@ -620,7 +629,6 @@ $('#echo-settings-dialog').addEventListener('close', event => {
     fdnDamping: clamp(Number($('#setting-fdn-damping').value), .1, 1, DEFAULT_ECHO_FIELD_SETTINGS.fdnDamping),
     geometryInfluence: clamp(Number($('#setting-geometry-influence').value), 0, 1, DEFAULT_ECHO_FIELD_SETTINGS.geometryInfluence)
   };
-  lateReverbCache = null;
   saveWorkspace();
   if (echoAreaEnabled) rebuildEchoArea();
 });
@@ -761,7 +769,7 @@ map.on('moveend', scheduleEchoAreaUpdate);
 
 $('#link-points').addEventListener('click', () => {
   state.pointsLinked = !state.pointsLinked;
-  if (state.pointsLinked) state.listener = { ...state.source };
+  if (state.pointsLinked) { state.listener = { ...state.source }; state.settings.arrivalsOnly = false; $('#arrivals-only').checked = false; }
   syncMarkers();
   render();
 });
@@ -847,13 +855,13 @@ $('#listener-heading').addEventListener('input', event => {
   saveWorkspace();
 });
 
-$('#reflections-solo').addEventListener('change', event => {
-  state.settings.reflectionsSolo = event.currentTarget.checked;
+$('#arrivals-only').addEventListener('change', event => {
+  state.settings.arrivalsOnly = event.currentTarget.checked;
   saveWorkspace();
 });
 
-$('#spatial-audio').addEventListener('change', event => {
-  state.settings.spatialAudio = event.currentTarget.checked;
+$('#panning-mode').addEventListener('change', event => {
+  state.settings.panningMode = event.currentTarget.value === 'spatial-stereo' ? 'spatial-stereo' : 'hrtf-live';
   saveWorkspace();
 });
 
@@ -862,194 +870,84 @@ function getAudioContext() {
   return audioContext;
 }
 
-function createHandclap(context) {
-  const duration = .23;
-  const buffer = context.createBuffer(1, context.sampleRate * duration, context.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let index = 0; index < data.length; index += 1) {
-    const time = index / context.sampleRate;
-    const bursts = [0, .026, .052].reduce((sum, start) => sum + (time >= start ? Math.exp(-(time - start) * 42) : 0), 0);
-    data[index] = (Math.random() * 2 - 1) * bursts * .34;
+async function loadDefaultHandclap(context) {
+  if (!defaultHandclapBuffer) {
+    const response = await fetch(new URL('../assets/handclap.wav', import.meta.url));
+    if (!response.ok) throw new Error('The built-in handclap could not be loaded.');
+    defaultHandclapBuffer = await context.decodeAudioData(await response.arrayBuffer());
   }
+  return defaultHandclapBuffer;
+}
+
+const playbackStartTime = context => context.currentTime + (context.baseLatency ?? 0) + (context.outputLatency ?? 0);
+
+function createRenderedSource(context, channels) {
+  const source = context.createBufferSource();
+  source.buffer = context.createBuffer(2, channels[0].length, WAV_SAMPLE_RATE);
+  channels.forEach((channel, index) => source.buffer.copyToChannel(channel, index));
+  source.connect(context.destination);
+  return source;
+}
+
+function playRenderedChannels(context, channels) {
+  createRenderedSource(context, channels).start(playbackStartTime(context));
+}
+
+function monoAudioBuffer(context, samples) {
+  const buffer = context.createBuffer(1, samples.length, WAV_SAMPLE_RATE);
+  buffer.copyToChannel(samples, 0);
   return buffer;
 }
 
-function playBufferAt(context, buffer, time, gainValue, position) {
-  const source = context.createBufferSource();
-  const filter = context.createBiquadFilter();
-  const gain = context.createGain();
-  source.buffer = buffer;
-  filter.type = 'bandpass'; filter.frequency.value = 1500; filter.Q.value = .7;
-  gain.gain.value = gainValue;
-  source.connect(filter).connect(gain);
-  if (position && $('#spatial-audio').checked) {
-    const panner = context.createPanner();
-    panner.panningModel = 'HRTF';
-    panner.distanceModel = 'inverse';
-    panner.refDistance = 1;
-    panner.maxDistance = 2;
-    panner.rolloffFactor = 0;
-    panner.positionX.value = position.x;
-    panner.positionY.value = position.y;
-    panner.positionZ.value = position.z;
+function createHrtfArrival(context, buffer, event) {
+  const source = context.createBufferSource(); const gain = context.createGain(); const panner = context.createPanner();
+  const position = event.spatial === false ? null : hrtfPosition(state.listener, event.emitter, state.settings.heading);
+  source.buffer = buffer; gain.gain.value = event.gain;
+  source.connect(gain);
+  if (position) {
+    panner.panningModel = 'HRTF'; panner.distanceModel = 'inverse'; panner.refDistance = 1; panner.maxDistance = 2; panner.rolloffFactor = 0;
+    panner.positionX.value = position.x; panner.positionY.value = position.y; panner.positionZ.value = position.z;
     gain.connect(panner).connect(context.destination);
-  } else {
-    gain.connect(context.destination);
-  }
-  source.start(time);
+  } else gain.connect(context.destination);
+  return { source, frame: event.frame };
 }
 
-function createLateReverbInWorker(context, options) {
-  rejectLateReverbWorker?.(new DOMException('Audio preparation cancelled.', 'AbortError'));
-  lateReverbWorker?.terminate();
-  const worker = new Worker(new URL('./late-reverb-worker.js', import.meta.url), { type: 'module' });
-  lateReverbWorker = worker;
-  return new Promise((resolve, reject) => {
-    rejectLateReverbWorker = reject;
-    worker.addEventListener('message', event => {
-      worker.terminate();
-      if (lateReverbWorker === worker) lateReverbWorker = null;
-      if (lateReverbWorker === null) rejectLateReverbWorker = null;
-      if (event.data.error) return reject(new Error(event.data.error));
-      const channels = event.data.channels.map(channel => new Float32Array(channel));
-      const reverbBuffer = context.createBuffer(2, channels[0].length, context.sampleRate);
-      channels.forEach((channel, index) => reverbBuffer.copyToChannel(channel, index));
-      resolve(reverbBuffer);
-    }, { once: true });
-    worker.addEventListener('error', error => {
-      worker.terminate();
-      if (lateReverbWorker === worker) lateReverbWorker = null;
-      if (lateReverbWorker === null) rejectLateReverbWorker = null;
-      reject(error);
-    }, { once: true });
-    worker.postMessage({ ...options, sampleRate: context.sampleRate });
-  });
-}
-
-async function prepareLateReverb(context, reflectors, heading) {
-  if (reflectors.length < 2) return null;
-  const cacheKey = JSON.stringify({ source: state.source, listener: state.listener, heading, reflectors, settings: state.settings.echoField });
-  if (!lateReverbCache || lateReverbCache.context !== context || lateReverbCache.key !== cacheKey) {
-    lateReverbCache = {
-      context,
-      key: cacheKey,
-      buffer: await createLateReverbInWorker(context, {
-        source: state.source,
-        listener: state.listener,
-        reflectors,
-        heading,
-        durationSeconds: state.settings.echoField.durationSeconds,
-        maxBounces: state.settings.echoField.maxBounces,
-        walkCount: state.settings.echoField.lateWalks,
-        cutoffDb: state.settings.echoField.cutoffDb,
-        decayScale: 1.1 - state.settings.echoField.tailPersistence
-      })
-    };
-  }
-  return lateReverbCache.buffer;
-}
-
-function playLateReverb(context, buffer, time, reverbBuffer) {
-  if (!reverbBuffer) return;
-  const source = context.createBufferSource();
-  const convolver = context.createConvolver();
-  const gain = context.createGain();
-  source.buffer = buffer;
-  convolver.normalize = false;
-  convolver.buffer = reverbBuffer;
-  gain.gain.value = .7;
-  source.connect(convolver).connect(gain).connect(context.destination);
-  source.start(time);
-}
-
-async function prepareFeedbackDelayNetwork(context, reflectors) {
-  if (reflectors.length < 2) return false;
-  if (fdnWorkletContext !== context) {
-    await context.audioWorklet.addModule(new URL('./fdn-worklet.js', import.meta.url));
-    fdnWorkletContext = context;
-  }
-  return true;
-}
-
-function playFeedbackDelayNetwork(context, buffer, time, reflectors) {
-  if (reflectors.length < 2) return;
-  const source = context.createBufferSource();
-  const gain = context.createGain();
-  const settings = state.settings.echoField;
-  const processorOptions = createFdnConfiguration({
-    sampleRate: context.sampleRate,
-    source: state.source,
-    listener: state.listener,
-    reflectors,
-    heading: Number($('#listener-heading').value),
-    distanceMetres,
-    tailSeconds: settings.fdnTailSeconds,
-    density: settings.fdnDensity,
-    damping: settings.fdnDamping,
-    geometryInfluence: settings.geometryInfluence
-  });
-  const fdn = new AudioWorkletNode(context, 'echotect-fdn', { outputChannelCount: [2], processorOptions });
-  source.buffer = buffer;
-  gain.gain.value = .65;
-  source.connect(fdn).connect(gain).connect(context.destination);
-  source.start(time);
+function playHrtfMonitor(context, inputMono, rendered, reflectors) {
+  const inputBuffer = monoAudioBuffer(context, inputMono);
+  const lateSource = createRenderedSource(context, rendered.late);
+  const directArrival = createDirectArrivalEvent({ source: state.source, listener: state.listener });
+  const onset = state.settings.arrivalsOnly || directArrival.frame === 0 ? null : createHrtfArrival(context, inputBuffer, { frame: 0, gain: .8 * Math.SQRT1_2, spatial: false });
+  const arrivals = createEarlyArrivalEvents({ source: state.source, listener: state.listener, reflectors, settings: state.settings.echoField })
+    .map(event => createHrtfArrival(context, inputBuffer, event));
+  arrivals.push(createHrtfArrival(context, inputBuffer, directArrival));
+  const startTime = playbackStartTime(context);
+  onset?.source.start(startTime);
+  lateSource.start(startTime);
+  arrivals.forEach(arrival => arrival.source.start(startTime + arrival.frame / WAV_SAMPLE_RATE));
 }
 
 $('#play-button').addEventListener('click', async () => {
   const button = $('#play-button');
-  const busyStartedAt = performance.now();
   button.disabled = true;
   button.setAttribute('aria-busy', 'true');
   await new Promise(resolve => requestAnimationFrame(resolve));
   try {
     const context = getAudioContext();
     await context.resume();
-    const buffer = importedAudioBuffer ?? createHandclap(context);
-    const direct = directSoundMetrics(state.source, state.listener);
-    const reflectorsWithLevels = audibleReflectors().map(reflector => ({
-      ...reflector,
-      levelDb: (reflector.levelDb ?? state.globalReflectionLevelDb)
-        + MATERIAL_ATTENUATION_DB[effectiveMaterial(reflector, state.globalMaterial)]
-    }));
-    const listenerHeading = Number($('#listener-heading').value);
-    const lateMode = state.settings.echoField.lateMode;
-    const lateReverbBuffer = lateMode === 'convolution'
-      ? await prepareLateReverb(context, reflectorsWithLevels, listenerHeading)
-      : null;
-    if (lateMode === 'fdn') await prepareFeedbackDelayNetwork(context, reflectorsWithLevels);
-    const now = context.currentTime + .03;
-    const reflectionsSolo = $('#reflections-solo').checked;
-    const sourcePosition = hrtfPosition(state.listener, state.source, listenerHeading);
-    if (!reflectionsSolo) {
-      playBufferAt(context, buffer, now, .8, sourcePosition);
-      if (hasDistinctDirectArrival(state.source, state.listener)) {
-        const directAttenuation = Math.max(.18, Math.min(.72, 140 / Math.max(140, direct.pathMetres)));
-        playBufferAt(context, buffer, now + direct.propagationSeconds, directAttenuation, sourcePosition);
-      }
-    }
-    buildReflectionPaths(reflectorsWithLevels, {
-      maxBounces: Math.min(2, state.settings.echoField.maxBounces),
-      maxPaths: state.settings.echoField.earlyPathLimit,
-      thresholdDb: state.settings.echoField.cutoffDb
-    }).forEach(reflectorPath => {
-      const { propagationSeconds, pathMetres } = reflectionPathMetrics(state.source, state.listener, reflectorPath);
-      const attenuation = Math.max(.12, Math.min(.65, 140 / Math.max(140, pathMetres)));
-      const gain = reflectionPathGain(attenuation, reflectorPath);
-      if (gainToDecibels(gain) >= state.settings.echoField.cutoffDb) {
-        const arrivalPosition = hrtfPosition(state.listener, reflectorPath.at(-1), listenerHeading);
-        playBufferAt(context, buffer, now + propagationSeconds, gain, arrivalPosition);
-      }
-    });
-    if (lateMode === 'fdn') {
-      playFeedbackDelayNetwork(context, buffer, now, reflectorsWithLevels);
-    } else {
-      playLateReverb(context, buffer, now, lateReverbBuffer);
+    const inputMono = resampleToMono(importedAudioBuffer ?? await loadDefaultHandclap(context));
+    const reflectors = exportReflectors();
+    const rendered = await renderExportAudio({ source: state.source, listener: state.listener, reflectors, heading: state.settings.heading, settings: { ...state.settings.echoField, spatialAudio: true }, distanceMetres, inputMono });
+    if (state.settings.panningMode === 'hrtf-live') playHrtfMonitor(context, inputMono, rendered, reflectors);
+    else {
+      const arrivalsOnly = $('#arrivals-only').checked;
+      const channels = rendered.wet.map(channel => new Float32Array(channel));
+      const directArrival = createDirectArrivalEvent({ source: state.source, listener: state.listener });
+      if (!arrivalsOnly && directArrival.frame > 0) channels.forEach(channel => inputMono.forEach((sample, frame) => { channel[frame] += sample * .8 * Math.SQRT1_2; }));
+      playRenderedChannels(context, channels);
     }
   } catch (error) {
     if (error?.name !== 'AbortError') console.error(error);
   } finally {
-    const remainingBusyTime = Math.max(0, 2000 - (performance.now() - busyStartedAt));
-    if (remainingBusyTime) await new Promise(resolve => setTimeout(resolve, remainingBusyTime));
     button.disabled = false;
     button.removeAttribute('aria-busy');
   }
@@ -1061,29 +959,131 @@ $('#audio-file').addEventListener('change', async event => {
   try {
     const context = getAudioContext();
     importedAudioBuffer = await context.decodeAudioData(await file.arrayBuffer());
+    importedAudioName = file.name;
     $('#sound-name').textContent = `Sound: ${file.name}`;
   } catch {
     importedAudioBuffer = null;
+    importedAudioName = null;
     $('#sound-name').textContent = 'Sound: file could not be opened';
   }
 });
 
 $('#default-sound').addEventListener('click', () => {
   importedAudioBuffer = null;
+  importedAudioName = null;
   $('#audio-file').value = '';
-  $('#sound-name').textContent = 'Sound: Echotect handclap';
+  $('#sound-name').textContent = 'Sound: handclap.wav';
+});
+
+const exportSelectionInputs = () => [...document.querySelectorAll('input[name="export-item"]')];
+const exportReflectors = () => audibleReflectors().map(reflector => ({
+  ...reflector,
+  levelDb: (reflector.levelDb ?? state.globalReflectionLevelDb) + MATERIAL_ATTENUATION_DB[effectiveMaterial(reflector, state.globalMaterial)],
+  effectiveMaterial: effectiveMaterial(reflector, state.globalMaterial)
+}));
+const safeFileStem = name => name.trim().toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'echotect-project';
+const formatBytes = bytes => bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+
+function currentManifest(projectName = state.project.name) {
+  return createProjectManifest({
+    projectId: state.project.id, projectName, createdAt: state.project.createdAt,
+    source: state.source, listener: state.listener, reflectors: exportReflectors(),
+    globalReflectionLevelDb: state.globalReflectionLevelDb, globalMaterial: state.globalMaterial,
+    pointsLinked: state.pointsLinked, heading: state.settings.heading,
+    echoArea: { enabled: echoAreaEnabled, radiusMetres: state.settings.echoAreaRadiusMetres, activeSurfaceCount: automaticReflectors.length },
+    echoField: { ...state.settings.echoField, canonicalPanning: 'spatial-stereo', livePanningMode: state.settings.panningMode }, inputName: importedAudioName ?? 'handclap.wav', inputDurationSeconds: importedAudioBuffer?.duration ?? defaultHandclapBuffer?.duration ?? DEFAULT_HANDCLAP_DURATION_SECONDS
+  });
+}
+
+function exportSizes() {
+  const inputSeconds = importedAudioBuffer?.duration ?? defaultHandclapBuffer?.duration ?? DEFAULT_HANDCLAP_DURATION_SECONDS;
+  const paths = buildReflectionPaths(exportReflectors(), { maxBounces: Math.min(2, state.settings.echoField.maxBounces), maxPaths: state.settings.echoField.earlyPathLimit, thresholdDb: state.settings.echoField.cutoffDb });
+  const irFrames = Math.max(Math.ceil(state.settings.echoField.durationSeconds * WAV_SAMPLE_RATE), paths.length ? Math.max(...paths.map(path => Math.round(reflectionPathMetrics(state.source, state.listener, path).propagationSeconds * WAV_SAMPLE_RATE))) + 1 : 0);
+  const fdnFrames = Math.max(Math.ceil(state.settings.echoField.fdnTailSeconds * 1.25 * WAV_SAMPLE_RATE), paths.length ? Math.max(...paths.map(path => Math.round(reflectionPathMetrics(state.source, state.listener, path).propagationSeconds * WAV_SAMPLE_RATE))) + 1 : 0);
+  const inputFrames = Math.ceil(inputSeconds * WAV_SAMPLE_RATE);
+  const directFrame = Math.round(directSoundMetrics(state.source, state.listener).propagationSeconds * WAV_SAMPLE_RATE);
+  const timelineFrames = Math.max(inputFrames + Math.max(irFrames, fdnFrames) - 1, directFrame + inputFrames);
+  const manifestBytes = new TextEncoder().encode(`${JSON.stringify(currentManifest(), null, 2)}\n`).length;
+  return {
+    manifest: manifestBytes,
+    convolution: wavByteLength(irFrames),
+    fdn: wavByteLength(fdnFrames),
+    wet: wavByteLength(timelineFrames),
+    stems: wavByteLength(timelineFrames) * 3
+  };
+}
+
+function updateExportSummary() {
+  const sizes = exportSizes();
+  Object.entries(sizes).forEach(([key, bytes]) => { $(`#export-size-${key}`).textContent = formatBytes(bytes); });
+  const selected = exportSelectionInputs().filter(input => input.checked).map(input => input.value);
+  const fileCount = selected.reduce((count, value) => count + (value === 'stems' ? 3 : 1), 0);
+  const bytes = selected.reduce((sum, value) => sum + sizes[value], 0);
+  $('#export-summary').textContent = selected.length ? `${fileCount} file${fileCount === 1 ? '' : 's'} · ≈ ${formatBytes(bytes)}${fileCount > 1 ? ' · ZIP' : ''}` : 'Select at least one export.';
+  const fieldNote = $('#export-field-note');
+  fieldNote.hidden = audibleReflectors().length >= 2;
+  fieldNote.textContent = fieldNote.hidden ? '' : 'Late field will be silent: add at least two reflectors for recursive late reflections.';
+  $('#export-submit').disabled = selected.length === 0;
+}
+
+$('#export-button').addEventListener('click', () => {
+  $('#export-project-name').value = state.project.name;
+  $('#export-error').hidden = true;
+  updateExportSummary();
+  $('#export-dialog').showModal();
+  $('#export-dialog').focus({ preventScroll: true });
+});
+exportSelectionInputs().forEach(input => input.addEventListener('change', updateExportSummary));
+$('#export-all').addEventListener('click', () => { exportSelectionInputs().forEach(input => { input.checked = true; }); updateExportSummary(); });
+
+function downloadExport(name, data, type) {
+  const url = URL.createObjectURL(new Blob([data], { type }));
+  const link = document.createElement('a');
+  link.href = url; link.download = name; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+$('#export-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (event.submitter?.value === 'cancel') { $('#export-dialog').close('cancel'); return; }
+  const projectName = $('#export-project-name').value.trim();
+  if (!projectName) { $('#export-project-name').reportValidity(); return; }
+  const selected = new Set(exportSelectionInputs().filter(input => input.checked).map(input => input.value));
+  if (!selected.size) return;
+  const button = $('#export-submit'); const errorOutput = $('#export-error');
+  button.disabled = true; button.setAttribute('aria-busy', 'true'); errorOutput.hidden = true;
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  try {
+    state.project.name = projectName; saveWorkspace();
+    const manifest = currentManifest(projectName);
+    const validation = validateProjectManifest(manifest);
+    if (!validation.valid) throw new Error(`Project manifest is invalid: ${validation.errors.join('; ')}`);
+    const stem = safeFileStem(projectName); const files = [];
+    if (selected.has('manifest')) files.push({ name: `${stem}.echotect.json`, data: new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`) });
+    const needsAudio = [...selected].some(value => value !== 'manifest');
+    if (needsAudio) {
+      const inputMono = resampleToMono(importedAudioBuffer ?? await loadDefaultHandclap(getAudioContext()));
+      const audio = await renderExportAudio({ source: state.source, listener: state.listener, reflectors: exportReflectors(), heading: state.settings.heading, settings: { ...state.settings.echoField, spatialAudio: true }, distanceMetres, inputMono });
+      const addWav = (suffix, channels) => files.push({ name: `${stem}-${suffix}.wav`, data: encodeFloat32Wav(channels) });
+      if (selected.has('convolution')) addWav('ir-convolution', audio.convolutionIr);
+      if (selected.has('fdn')) addWav('ir-rendered-fdn', audio.fdnIr);
+      if (selected.has('wet')) addWav('wet', audio.wet);
+      if (selected.has('stems')) { addWav('stem-direct', audio.direct); addWav('stem-early', audio.early); addWav('stem-late', audio.late); }
+    }
+    if (files.length === 1) downloadExport(files[0].name, files[0].data, files[0].name.endsWith('.json') ? 'application/json' : 'audio/wav');
+    else downloadExport(`${stem}-exports.zip`, zipStore(files), 'application/zip');
+    $('#export-dialog').close('export');
+  } catch (error) {
+    errorOutput.textContent = error instanceof Error ? error.message : String(error); errorOutput.hidden = false;
+  } finally {
+    button.disabled = false; button.removeAttribute('aria-busy');
+  }
 });
 
 $('#reset-audio').addEventListener('click', async event => {
   const button = event.currentTarget;
   const context = audioContext;
   audioContext = null;
-  lateReverbCache = null;
-  rejectLateReverbWorker?.(new DOMException('Audio preparation cancelled.', 'AbortError'));
-  rejectLateReverbWorker = null;
-  lateReverbWorker?.terminate();
-  lateReverbWorker = null;
-  fdnWorkletContext = null;
   if (!context || context.state === 'closed') return;
   button.disabled = true;
   button.setAttribute('aria-busy', 'true');
