@@ -1,4 +1,4 @@
-# Echotect: Turn your hood into a delay!
+# Echotect: Turn your hood into a delay
 
 Echotect turns real-world map geometry into musical delay structures. A Source,
 Listener, and Reflectors define propagation paths that can be auditioned in the
