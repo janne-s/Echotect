@@ -53,7 +53,10 @@ input[type="checkbox"]:focus-visible, input[type="range"]:focus-visible { outlin
 #map { position: absolute; inset: 0; }
 .map-tools { position: absolute; z-index: 2; left: 9px; top: 9px; display: flex; flex-wrap: wrap; gap: 5px; }
 .map-tools button { display: inline-flex; align-items: center; gap: 7px; background: #171717ee; }
-.map-tools .icon-button { justify-content: center; width: 28px; padding-inline: 0; font-size: .9rem; }
+.map-tools .icon-button {
+  display: grid; width: 32px; height: 32px; place-items: center; padding: 0 0 2px;
+  font-size: 1.4rem; line-height: 1;
+}
 .map-tools button.active, .map-tools button[aria-pressed="true"] { color: #111; background: var(--accent); border-color: var(--accent); }
 .map-tools button.active .tool-symbol { border-color: #111; }
 .map-tools button.active .symbol-source { background: #111; }
