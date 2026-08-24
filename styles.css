@@ -82,7 +82,7 @@ input[type="checkbox"]:focus-visible, input[type="range"]:focus-visible { outlin
 .reflection-list { display: grid; }
 .reflection { padding: 7px 0; }
 .reflection header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.reflection h3 { display: inline-flex; flex: 1; align-items: center; gap: 7px; margin: 0; font-size: .84rem; }
+.reflection h3 { flex: 1; margin: 0; font-size: .84rem; }
 .reflection button { padding: 2px 7px; border: 0; color: var(--accent); background: transparent; }
 .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 8px; }
 .metric span { display: block; color: var(--muted); font-size: .68rem; }

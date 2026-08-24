@@ -345,7 +345,7 @@ function reflectionCard(reflector, index) {
   const reflectionLevelDb = reflector.levelDb ?? state.globalReflectionLevelDb;
   const element = document.createElement('article');
   element.className = 'reflection';
-  element.innerHTML = `<header><h3><span class="tool-symbol symbol-reflector" aria-hidden="true"></span>Reflector ${index + 1}</h3><select class="reflection-material" aria-label="Reflector ${index + 1} material">${materialOptions(reflector.material ?? 'inherit', reflector)}</select><button type="button" aria-label="Remove reflector ${index + 1}">×</button></header>
+  element.innerHTML = `<header><h3>Reflector ${index + 1}</h3><select class="reflection-material" aria-label="Reflector ${index + 1} material">${materialOptions(reflector.material ?? 'inherit', reflector)}</select><button type="button" aria-label="Remove reflector ${index + 1}">×</button></header>
     <div class="metrics">
       <div class="metric"><span>Listener → reflector</span><strong></strong></div>
       <div class="metric"><span>Reflection delay</span><strong></strong></div>
