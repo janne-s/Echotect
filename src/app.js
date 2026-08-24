@@ -107,6 +107,8 @@ let audioContext;
 let importedAudioBuffer = null;
 let importedAudioName = null;
 let defaultHandclapBuffer = null;
+let audioSourceRevision = 0;
+let monitorRenderCache = null;
 let lastSearchAt = 0;
 let hoveredBuildingEdge = null;
 let automaticReflectors = [];
@@ -988,6 +990,32 @@ function playRenderedChannels(context, channels) {
   createRenderedSource(context, channels).start(playbackStartTime(context));
 }
 
+const copyStereo = channels => channels.map(channel => channel.slice());
+
+function monitorRenderKey(reflectors, outputs) {
+  return JSON.stringify({
+    audioSourceRevision,
+    source: state.source,
+    listener: state.listener,
+    reflectors,
+    heading: state.settings.heading,
+    echoField: state.settings.echoField,
+    outputs
+  });
+}
+
+function changeAudioSource() {
+  audioSourceRevision += 1;
+  monitorRenderCache = null;
+}
+
+async function renderMonitorAudio(key, options) {
+  if (monitorRenderCache?.key === key) return monitorRenderCache.rendered;
+  const rendered = await renderExportAudio(options);
+  monitorRenderCache = { key, rendered };
+  return rendered;
+}
+
 /** Mixes the source onset trigger into a rendered monitor mix that the caller owns. */
 function addSourceOnset(channels, inputMono) {
   const gain = SOURCE_ONSET_GAIN * Math.SQRT1_2;
@@ -1066,14 +1094,15 @@ $('#play-button').addEventListener('click', async () => {
     const plan = monitorArrivalPlan(directArrival, state.settings.arrivalsOnly);
     // Without the direct arrival the wet mix is not the right monitor mix, so its parts are asked for.
     const outputs = hrtfMonitor ? ['late'] : plan.playDirectArrival ? ['wet'] : ['early', 'late'];
-    const rendered = await renderExportAudio({
+    const renderOptions = {
       source: state.source, listener: state.listener, reflectors, heading: state.settings.heading,
       settings: { ...state.settings.echoField, spatialAudio: true }, distanceMetres, inputMono, outputs
-    });
+    };
+    const rendered = await renderMonitorAudio(monitorRenderKey(reflectors, outputs), renderOptions);
     if (hrtfMonitor) playHrtfMonitor(context, inputMono, rendered.late, reflectors, directArrival, plan);
     else {
-      let channels = rendered.wet;
-      if (!channels) { channels = rendered.early; addStereo(channels, rendered.late); }
+      const channels = copyStereo(rendered.wet ?? rendered.early);
+      if (!rendered.wet) addStereo(channels, rendered.late);
       if (plan.playOnset) addSourceOnset(channels, inputMono);
       playRenderedChannels(context, channels);
     }
@@ -1092,10 +1121,12 @@ $('#audio-file').addEventListener('change', async event => {
     const context = getAudioContext();
     importedAudioBuffer = await context.decodeAudioData(await file.arrayBuffer());
     importedAudioName = file.name;
+    changeAudioSource();
     $('#sound-name').textContent = `Sound: ${file.name}`;
   } catch {
     importedAudioBuffer = null;
     importedAudioName = null;
+    changeAudioSource();
     $('#sound-name').textContent = 'Sound: file could not be opened';
   }
 });
@@ -1103,6 +1134,7 @@ $('#audio-file').addEventListener('change', async event => {
 $('#default-sound').addEventListener('click', () => {
   importedAudioBuffer = null;
   importedAudioName = null;
+  changeAudioSource();
   $('#audio-file').value = '';
   $('#sound-name').textContent = `Sound: ${DEFAULT_SOUND_NAME}`;
 });
