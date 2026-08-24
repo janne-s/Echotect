@@ -103,6 +103,7 @@ input[type="checkbox"]:focus-visible, input[type="range"]:focus-visible { outlin
 .heading-arrow { display: inline-grid; place-items: center; width: 15px; height: 15px; color: var(--accent); font: 800 13px/1 ui-monospace, monospace; transform-origin: center; }
 .audio-actions { display: grid; grid-template-columns: 1.15fr 1fr .9fr; gap: 6px; }
 .primary { color: #111; background: var(--accent); border-color: var(--accent); font-weight: 700; }
+.primary:not(:disabled):hover { background: #ff73bf; border-color: #ff73bf; }
 .audio-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
 .modal {
   width: min(330px, calc(100vw - 24px)); padding: 0; border: 1px solid var(--line);
@@ -162,6 +163,13 @@ input[type="checkbox"]:focus-visible, input[type="range"]:focus-visible { outlin
 }
 
 @media (max-width: 480px) {
-  .settings-grid label { display: grid; gap: 5px; }
-  .settings-control { width: 100%; }
+  .settings-modal {
+    inset: 0; width: 100vw; max-width: none; height: 100dvh; max-height: none; margin: 0;
+    border: 0; border-radius: 0;
+  }
+  .settings-modal form, .settings-grid, .settings-grid label { width: 100%; min-width: 0; }
+  .settings-grid label { display: grid; justify-content: normal; gap: 5px; }
+  .settings-control { grid-template-columns: minmax(0, 1fr) 72px; width: 100%; min-width: 0; }
+  .settings-grid select { justify-self: start; }
+  .map-tools .icon-button { padding: 0 0 0px; font-size: inherit; line-height: 1; }
 }
