@@ -21,7 +21,7 @@ button[aria-busy="true"]::after {
 }
 @keyframes loading-spin { to { transform: rotate(360deg); } }
 .brand-actions { display: flex; align-items: center; gap: 10px; }
-.brand-actions #export-button { padding-inline: 12px; }
+.brand-actions button { padding-inline: 12px; }
 .github-link {
   display: grid; width: 30px; height: 30px; place-items: center; color: var(--ink);
 }

@@ -9,6 +9,7 @@ import { addStereo, renderExportAudio, resampleToMono } from './offline-export.j
 import { createProjectManifest, validateProjectManifest } from './project-manifest.js';
 import { boundedValue } from './range.js';
 import { hrtfPosition } from './spatial.js';
+import { createWorkspaceProject, parseWorkspaceProject, REFLECTION_LEVEL_RANGE } from './workspace-project.js';
 import { encodeFloat32Wav, wavByteLength, WAV_SAMPLE_RATE } from './wav.js';
 import { zipStore } from './zip.js';
 
@@ -21,7 +22,6 @@ const materialValues = new Set(Object.keys(MATERIAL_LABELS));
 const DEFAULT_HANDCLAP_DURATION_SECONDS = 0.2003125;
 const DEFAULT_MAP_VIEW = Object.freeze({ longitude: 24.939, latitude: 60.1706, zoom: 15 });
 const MAXIMUM_ZOOM = 24;
-const REFLECTION_LEVEL_RANGE = Object.freeze({ minimum: -18, maximum: -1, fallback: -6 });
 const HEADING_RANGE = Object.freeze({ minimum: 0, maximum: 359, fallback: 0 });
 const MINIMUM_ECHO_FIELD_RADIUS_METRES = 10;
 const ECHO_FIELD_CIRCLE_POINTS = 64;
@@ -113,6 +113,7 @@ let lastSearchAt = 0;
 let hoveredBuildingEdge = null;
 let automaticReflectors = [];
 let echoFieldEnabled = false;
+let echoFieldUsesSavedReflectors = false;
 let echoFieldHandle = null;
 let echoFieldUpdateTimer = null;
 
@@ -193,14 +194,18 @@ function saveWorkspace() {
   }
 }
 
-Object.assign($('#global-level'), { min: REFLECTION_LEVEL_RANGE.minimum, max: REFLECTION_LEVEL_RANGE.maximum, value: state.globalReflectionLevelDb });
-$('#global-level-value').textContent = `${state.globalReflectionLevelDb} dB`;
-$('#global-material').value = state.globalMaterial;
-Object.assign($('#listener-heading'), { min: HEADING_RANGE.minimum, max: HEADING_RANGE.maximum, value: state.settings.heading });
-$('#heading-value').textContent = `${state.settings.heading}°`;
-$('#heading-arrow').style.transform = `rotate(${state.settings.heading}deg)`;
-$('#arrivals-only').checked = state.settings.arrivalsOnly;
-$('#panning-mode').value = state.settings.panningMode;
+function syncWorkspaceControls() {
+  Object.assign($('#global-level'), { min: REFLECTION_LEVEL_RANGE.minimum, max: REFLECTION_LEVEL_RANGE.maximum, value: state.globalReflectionLevelDb });
+  $('#global-level-value').textContent = `${state.globalReflectionLevelDb} dB`;
+  $('#global-material').value = state.globalMaterial;
+  Object.assign($('#listener-heading'), { min: HEADING_RANGE.minimum, max: HEADING_RANGE.maximum, value: state.settings.heading });
+  $('#heading-value').textContent = `${state.settings.heading}°`;
+  $('#heading-arrow').style.transform = `rotate(${state.settings.heading}deg)`;
+  $('#arrivals-only').checked = state.settings.arrivalsOnly;
+  $('#panning-mode').value = state.settings.panningMode;
+}
+
+syncWorkspaceControls();
 
 function markerElement(type, label = '') {
   const element = document.createElement('div');
@@ -222,18 +227,23 @@ function createMarker(id, type, point, onMove, label) {
   markers.set(id, marker);
 }
 
+function releaseSavedEchoField() {
+  echoFieldUsesSavedReflectors = false;
+}
+
 function syncMarkers() {
   markers.forEach(marker => marker.remove());
   markers.clear();
   if (state.pointsLinked) {
     createMarker('combined', 'combined', state.source, point => {
+      releaseSavedEchoField();
       state.source = point;
       state.listener = { ...point };
       renderGeometry();
     });
   } else {
-    createMarker('source', 'source', state.source, point => { state.source = point; renderGeometry(); });
-    createMarker('listener', 'listener', state.listener, point => { state.listener = point; renderGeometry(); });
+    createMarker('source', 'source', state.source, point => { releaseSavedEchoField(); state.source = point; renderGeometry(); });
+    createMarker('listener', 'listener', state.listener, point => { releaseSavedEchoField(); state.listener = point; renderGeometry(); });
   }
   state.reflectors.forEach((reflector, index) => createMarker(reflector.id, 'reflector', reflector, point => {
     Object.assign(reflector, point);
@@ -480,6 +490,7 @@ function nearestBuildingWall(feature, clickPoint) {
 
 function rebuildEchoField() {
   if (!echoFieldEnabled || !map.getSource('overture-buildings')) return;
+  echoFieldUsesSavedReflectors = false;
   const walls = [];
   const seenEdges = new Set();
   map.querySourceFeatures('overture-buildings', { sourceLayer: 'buildings' }).forEach(feature => {
@@ -529,7 +540,7 @@ function rebuildEchoField() {
 }
 
 function scheduleEchoFieldUpdate() {
-  if (!echoFieldEnabled) return;
+  if (!echoFieldEnabled || echoFieldUsesSavedReflectors) return;
   clearTimeout(echoFieldUpdateTimer);
   echoFieldUpdateTimer = setTimeout(rebuildEchoField, 80);
 }
@@ -552,10 +563,12 @@ map.on('click', event => {
   if (!activeTool) return;
   const point = pointFromLngLat(event.lngLat);
   if (activeTool === 'source') {
+    releaseSavedEchoField();
     state.source = point;
     if (state.pointsLinked) state.listener = { ...point };
   }
   if (activeTool === 'listener') {
+    releaseSavedEchoField();
     state.listener = point;
     if (state.pointsLinked) state.source = { ...point };
   }
@@ -719,6 +732,7 @@ $('#clear-reflectors').addEventListener('click', async () => {
 });
 
 $('#global-level').addEventListener('input', event => {
+  releaseSavedEchoField();
   const nextLevelDb = Number(event.currentTarget.value);
   const changeDb = nextLevelDb - state.globalReflectionLevelDb;
   state.globalReflectionLevelDb = nextLevelDb;
@@ -802,7 +816,7 @@ $('#buildings-button').addEventListener('click', () => {
   if (state.buildingsVisible && map.getZoom() < 14) map.easeTo({ zoom: 14 });
 });
 
-function setEchoFieldEnabled(enabled) {
+function setEchoFieldEnabled(enabled, restoredReflectors = null) {
   echoFieldEnabled = enabled;
   const button = $('#echo-field-button');
   button.setAttribute('aria-pressed', String(enabled));
@@ -814,6 +828,7 @@ function setEchoFieldEnabled(enabled) {
     echoFieldHandle = new maplibregl.Marker({ element, draggable: true })
       .setLngLat([point.longitude, point.latitude]).addTo(map);
     const updateRadius = () => {
+      releaseSavedEchoField();
       state.settings.echoFieldRadiusMetres = Math.max(MINIMUM_ECHO_FIELD_RADIUS_METRES, distanceMetres(state.listener, pointFromLngLat(echoFieldHandle.getLngLat())));
       scheduleSave();
       syncEchoFieldGeometry();
@@ -822,14 +837,25 @@ function setEchoFieldEnabled(enabled) {
     echoFieldHandle.on('drag', updateRadius);
     echoFieldHandle.on('dragend', updateRadius);
     syncEchoFieldGeometry();
-    rebuildEchoField();
+    if (Array.isArray(restoredReflectors)) {
+      echoFieldUsesSavedReflectors = true;
+      button.disabled = false;
+      automaticReflectors = restoredReflectors;
+      button.textContent = `Echo field · ${automaticReflectors.length}`;
+      button.title = `${state.settings.echoFieldRadiusMetres.toFixed(0)} m radius · ${automaticReflectors.length} saved surfaces`;
+      syncRoutes();
+      render();
+      clearTimeout(echoFieldUpdateTimer);
+    } else rebuildEchoField();
   } else {
+    echoFieldUsesSavedReflectors = false;
     clearTimeout(echoFieldUpdateTimer);
     echoFieldHandle?.remove();
     echoFieldHandle = null;
     automaticReflectors = [];
     button.textContent = 'Echo field';
     button.title = 'Create an automatic echo field around the Listener';
+    button.disabled = !state.buildingsVisible;
     syncEchoFieldGeometry();
     render();
   }
@@ -840,6 +866,7 @@ $('#echo-field-button').addEventListener('click', () => setEchoFieldEnabled(!ech
 map.on('moveend', scheduleEchoFieldUpdate);
 
 $('#link-points').addEventListener('click', () => {
+  releaseSavedEchoField();
   state.pointsLinked = !state.pointsLinked;
   if (state.pointsLinked) state.listener = { ...state.source };
   syncMarkers();
@@ -1152,6 +1179,23 @@ const inputDurationSeconds = () => importedAudioBuffer?.duration ?? defaultHandc
 const safeFileStem = name => name.trim().toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'echotect-project';
 const formatBytes = bytes => bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
 
+function currentWorkspaceProject() {
+  const center = map.getCenter();
+  return createWorkspaceProject({
+    project: state.project,
+    source: state.source,
+    listener: state.listener,
+    reflectors: state.reflectors,
+    automaticReflectors,
+    pointsLinked: state.pointsLinked,
+    globalReflectionLevelDb: state.globalReflectionLevelDb,
+    globalMaterial: state.globalMaterial,
+    settings: state.settings,
+    echoFieldEnabled,
+    mapView: { latitude: center.lat, longitude: center.lng, zoom: map.getZoom() }
+  });
+}
+
 function currentManifest(projectName = state.project.name) {
   return createProjectManifest({
     projectId: state.project.id, projectName, createdAt: state.project.createdAt,
@@ -1211,6 +1255,53 @@ function downloadExport(name, data, type) {
   link.href = url; link.download = name; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+$('#save-project-button').addEventListener('click', () => {
+  const project = currentWorkspaceProject();
+  const data = `${JSON.stringify(project, null, 2)}\n`;
+  downloadExport(`${safeFileStem(state.project.name)}.echotect-project.json`, data, 'application/json');
+});
+
+$('#open-project-button').addEventListener('click', () => $('#open-project-file').click());
+
+$('#open-project-file').addEventListener('change', async event => {
+  const [file] = event.currentTarget.files;
+  event.currentTarget.value = '';
+  if (!file) return;
+  let opened;
+  try {
+    opened = parseWorkspaceProject(await file.text());
+  } catch (error) {
+    window.alert(error.message);
+    return;
+  }
+  const confirmed = await requestConfirmation({
+    title: 'Open project?',
+    message: `Replace the current workspace with “${opened.project.name}”?`,
+    confirmLabel: 'Open project'
+  });
+  if (!confirmed) return;
+  if (echoFieldEnabled) setEchoFieldEnabled(false);
+  clearTimeout(echoFieldUpdateTimer);
+  Object.assign(state, {
+    project: opened.project,
+    source: opened.source,
+    listener: opened.listener,
+    reflectors: opened.reflectors,
+    pointsLinked: opened.pointsLinked,
+    globalReflectionLevelDb: opened.globalReflectionLevelDb,
+    globalMaterial: opened.globalMaterial,
+    settings: opened.settings
+  });
+  monitorRenderCache = null;
+  automaticReflectors = [];
+  syncWorkspaceControls();
+  map.jumpTo({ center: [opened.mapView.longitude, opened.mapView.latitude], zoom: opened.mapView.zoom });
+  syncMarkers();
+  if (opened.echoFieldEnabled) setEchoFieldEnabled(true, opened.automaticReflectors);
+  else render();
+  saveWorkspaceNow();
+});
 
 $('#export-form').addEventListener('submit', async event => {
   event.preventDefault();
