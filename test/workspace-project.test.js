@@ -55,3 +55,14 @@ test('embedded image background survives project round-trip', () => {
   assert.equal(opened.background.widthMetres, 75);
   assert.equal(opened.background.rotationDegrees, -30);
 });
+
+test('reflector visibility connections survive project round-trip', () => {
+  const file = createWorkspaceProject({
+    ...workspace,
+    reflectors: [{ ...workspace.reflectors[0], visibleReflectorIds: ['area-1'] }],
+    automaticReflectors: [{ ...workspace.automaticReflectors[0], visibleReflectorIds: ['manual-1'] }]
+  });
+  const opened = parseWorkspaceProject(JSON.stringify(file));
+  assert.deepEqual(opened.reflectors[0].visibleReflectorIds, ['area-1']);
+  assert.deepEqual(opened.automaticReflectors[0].visibleReflectorIds, ['manual-1']);
+});

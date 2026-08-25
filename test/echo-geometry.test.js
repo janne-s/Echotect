@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { distanceMetres } from '../src/geo.js';
-import { edgeKey, reflectionField, wallReflectionCandidate } from '../src/echo-geometry.js';
+import { edgeKey, reflectionField, reflectorVisibilityGraph, wallReflectionCandidate } from '../src/echo-geometry.js';
 
 const source = { latitude: -0.001, longitude: 0 };
 const listener = { latitude: -0.001, longitude: 0.001 };
@@ -44,4 +44,16 @@ test('walls that cannot block a path do not change the result', () => {
   const withoutDistant = candidateFor({ walls: [wallOf(edge)] });
   const withDistant = candidateFor({ walls: [wallOf(edge), wallOf(distant)] });
   assert.deepEqual(withDistant, withoutDistant);
+});
+
+test('reflector visibility graph rejects a connection through a wall', () => {
+  const reflectors = [
+    { id: 'west', latitude: 0, longitude: -.001 },
+    { id: 'east', latitude: 0, longitude: .001 }
+  ];
+  const blocker = [[0, -.001], [0, .001]];
+  const open = reflectorVisibilityGraph(reflectionField({ source, listener, walls: [], radiusMetres: 500 }), reflectors);
+  const blocked = reflectorVisibilityGraph(reflectionField({ source, listener, walls: [wallOf(blocker)], radiusMetres: 500 }), reflectors);
+  assert.deepEqual(open.get('west'), ['east']);
+  assert.deepEqual(blocked.get('west'), []);
 });

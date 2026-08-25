@@ -15,6 +15,15 @@ test('two reflectors interact without immediate self-reflection', () => {
   assert.ok(paths.every(path => path.every((reflector, index) => index === 0 || reflector.id !== path[index - 1].id)));
 });
 
+test('building occlusion prevents a blocked reflector transition', () => {
+  const r1 = { id: 'r1', levelDb: -6, visibleReflectorIds: [] };
+  const r2 = { id: 'r2', levelDb: -6, visibleReflectorIds: [] };
+  const blocked = buildReflectionPaths([r1, r2], { buildingOcclusion: true });
+  const unfiltered = buildReflectionPaths([r1, r2], { buildingOcclusion: false });
+  assert.ok(blocked.every(path => path.length === 1));
+  assert.ok(unfiltered.some(path => path.length > 1));
+});
+
 test('reflection paths stop when their reflector levels fall below -90 dB', () => {
   const r1 = { id: 'r1', levelDb: -12 };
   const r2 = { id: 'r2', levelDb: -12 };

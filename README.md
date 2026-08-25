@@ -34,6 +34,8 @@ Listener, and Point Reflectors on top. The image is included in the saved projec
 
 - **Playback mode** — Plays directly in Live mode or prepares a reusable browser
   render when Rendered is selected.
+- **Block reflections through buildings** — Prevents Echo field surfaces from
+  reflecting sound to each other through intervening buildings.
 - **Point reflections** — Chooses between a longer, more diffuse point-reflection
   response and stricter geometric decay.
 - **Point persistence** — Sets how strongly sound continues between Point

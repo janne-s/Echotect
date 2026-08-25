@@ -177,6 +177,15 @@ input[type="range"]:focus-visible {
   position: absolute;
   inset: 0;
 }
+.reflection-pulses {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
 .map-tools {
   position: absolute;
   z-index: 2;
@@ -604,6 +613,14 @@ input[type="range"]:focus-visible {
   width: 100%;
   margin: 0;
   accent-color: var(--accent);
+}
+.settings-grid .settings-checkbox {
+  display: flex;
+  justify-content: flex-start;
+  white-space: nowrap;
+}
+.settings-grid .settings-checkbox input {
+  width: auto;
 }
 .settings-grid output {
   color: var(--ink);

@@ -126,6 +126,7 @@ export function normalizeEchoFieldSettings(values) {
   settings.lateMode = LATE_MODES.includes(values?.lateMode) ? values.lateMode : DEFAULT_LATE_MODE;
   settings.pointMode = POINT_MODES.includes(values?.pointMode) ? values.pointMode : DEFAULT_POINT_MODE;
   settings.airMode = AIR_MODES.includes(values?.airMode) ? values.airMode : DEFAULT_AIR_MODE;
+  settings.buildingOcclusion = Boolean(values?.buildingOcclusion);
   return settings;
 }
 

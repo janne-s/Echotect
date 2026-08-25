@@ -1,9 +1,9 @@
 import { createDirectArrivalEvent, createEarlyArrivalEvents, monitorArrivalPlan } from './arrivals.js';
 import { SOURCE_ONSET_GAIN } from './audio-model.js';
 import { DEFAULT_ECHO_FIELD_SETTINGS, ECHO_FIELD_SETTINGS, normalizeEchoFieldSettings } from './echo-field-settings.js';
-import { edgeKey, reflectionField, wallReflectionCandidate } from './echo-geometry.js';
+import { edgeKey, reflectionField, reflectorVisibilityGraph, wallReflectionCandidate } from './echo-geometry.js';
 import { exportFrameLayout } from './export-layout.js';
-import { distanceMetres, isValidCoordinate, metresPerDegreeLatitude, metresPerDegreeLongitude, parseCoordinates, reflectionMetrics } from './geo.js';
+import { distanceMetres, isValidCoordinate, metresPerDegreeLatitude, metresPerDegreeLongitude, parseCoordinates, reflectionMetrics, SPEED_OF_SOUND_METRES_PER_SECOND } from './geo.js';
 import { IMAGE_OPACITY_RANGE, IMAGE_WIDTH_RANGE, imageCoordinates, transformImageEdge, transformImagePoint } from './image-background.js';
 import { effectiveMaterial, MATERIAL_LABELS, normalizeFacadeMaterial } from './materials.js';
 import { addStereo, renderExportAudio, resampleToMono } from './offline-export.js';
@@ -36,6 +36,9 @@ const IMAGE_SOURCE_ID = 'echotect-background-image';
 const IMAGE_LAYER_ID = 'echotect-background-image';
 const IMAGE_SCALE_SOURCE_ID = 'echotect-image-scale';
 const OSM_TILE_URLS = ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'];
+const MAXIMUM_REFLECTION_PULSES = 4800;
+const MAXIMUM_VISUALIZED_PATHS = 800;
+const MAXIMUM_LATE_REFLECTION_PULSES = 4000;
 
 const validEdge = edge => Array.isArray(edge) && edge.length === 2
   && edge.every(point => Array.isArray(point) && point.length >= 2 && point.every(Number.isFinite));
@@ -120,6 +123,7 @@ let monitorRenderCache = null;
 let renderedPlayback = null;
 let renderingPlayback = false;
 let playbackRevision = 0;
+let reflectionPulseAnimationFrame = null;
 let lastSearchAt = 0;
 let hoveredBuildingEdge = null;
 let automaticReflectors = [];
@@ -701,6 +705,11 @@ function rebuildEchoField() {
   candidates.sort((a, b) => a.rank - b.rank);
   const maximumSurfaces = state.settings.echoField.maxSurfaces;
   automaticReflectors = candidates.slice(0, maximumSurfaces);
+  const allReflectors = audibleReflectors();
+  if (state.settings.echoField.buildingOcclusion) {
+    const visibility = reflectorVisibilityGraph(field, allReflectors);
+    allReflectors.forEach(reflector => { reflector.visibleReflectorIds = visibility.get(reflector.id) ?? []; });
+  } else allReflectors.forEach(reflector => { delete reflector.visibleReflectorIds; });
   invalidateRenderedPlayback();
   const button = $('#echo-field-button');
   button.textContent = `Echo field · ${automaticReflectors.length}${candidates.length > maximumSurfaces ? '+' : ''}`;
@@ -873,6 +882,7 @@ Object.entries(echoSettingInputs).forEach(([setting, selector]) => {
 
 $('#echo-settings-button').addEventListener('click', () => {
   $('#setting-playback-mode').value = state.settings.playbackMode;
+  $('#setting-building-occlusion').checked = state.settings.echoField.buildingOcclusion;
   $('#setting-late-mode').value = state.settings.echoField.lateMode;
   $('#setting-point-mode').value = state.settings.echoField.pointMode;
   $('#setting-air-mode').value = state.settings.echoField.airMode;
@@ -896,7 +906,8 @@ $('#echo-settings-dialog').addEventListener('close', event => {
     ...Object.fromEntries(Object.keys(echoSettingInputs).map(setting => [setting, $(echoSettingInputs[setting]).value])),
     lateMode: $('#setting-late-mode').value,
     pointMode: $('#setting-point-mode').value,
-    airMode: $('#setting-air-mode').value
+    airMode: $('#setting-air-mode').value,
+    buildingOcclusion: $('#setting-building-occlusion').checked
   });
   scheduleSave();
   syncPlayButton();
@@ -1304,6 +1315,105 @@ function playRenderedChannels(context, channels) {
   createRenderedSource(context, channels).start(playbackStartTime(context));
 }
 
+function clearReflectionPulses() {
+  cancelAnimationFrame(reflectionPulseAnimationFrame);
+  reflectionPulseAnimationFrame = null;
+  const canvas = $('#reflection-pulses');
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function animateReflectionPulses(events, reflectors, lateEvents = []) {
+  clearReflectionPulses();
+  if (!events.length || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const pointsById = new Map(reflectors.map(reflector => [reflector.id, reflector]));
+  const manualReflectorIds = new Set(state.reflectors.map(reflector => reflector.id));
+  const strongest = [...events]
+    .sort((a, b) => b.levelDb - a.levelDb)
+    .slice(0, MAXIMUM_VISUALIZED_PATHS);
+  const pulses = [];
+  const seen = new Set();
+  for (const event of strongest) {
+    let previous = state.source;
+    let delaySeconds = 0;
+    for (let bounce = 0; bounce < event.reflectorIds.length; bounce += 1) {
+      const point = pointsById.get(event.reflectorIds[bounce]);
+      if (!point) continue;
+      const fromPoint = previous;
+      delaySeconds += distanceMetres(previous, point) / SPEED_OF_SOUND_METRES_PER_SECOND;
+      const key = `${point.id}:${Math.round(delaySeconds * 30)}`;
+      previous = point;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      pulses.push({
+        point,
+        fromPoint,
+        delaySeconds,
+        manual: manualReflectorIds.has(point.id),
+        opacity: Math.max(.18, Math.min(.78, .18 + (event.levelDb + 90) / 120)) / (1 + bounce * .06)
+      });
+      if (pulses.length >= MAXIMUM_REFLECTION_PULSES) break;
+    }
+    if (pulses.length >= MAXIMUM_REFLECTION_PULSES) break;
+  }
+  for (const event of lateEvents) {
+    if (pulses.length >= MAXIMUM_REFLECTION_PULSES) break;
+    const point = pointsById.get(event.reflectorId);
+    if (!point) continue;
+    const key = `${point.id}:${Math.round(event.seconds * 30)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pulses.push({
+      point,
+      fromPoint: pointsById.get(event.previousReflectorId) ?? state.source,
+      delaySeconds: event.seconds,
+      manual: manualReflectorIds.has(point.id),
+      opacity: Math.max(.12, Math.min(.58, .12 + (event.levelDb + 90) / 170))
+    });
+  }
+  if (!pulses.length) return;
+  pulses.sort((a, b) => a.delaySeconds - b.delaySeconds);
+  const canvas = $('#reflection-pulses');
+  const context = canvas.getContext('2d');
+  const startedAt = performance.now();
+  let firstActive = 0;
+  const draw = now => {
+    const pixelRatio = devicePixelRatio || 1;
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    if (canvas.width !== Math.round(width * pixelRatio) || canvas.height !== Math.round(height * pixelRatio)) {
+      canvas.width = Math.round(width * pixelRatio);
+      canvas.height = Math.round(height * pixelRatio);
+    }
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    context.clearRect(0, 0, width, height);
+    const elapsed = (now - startedAt) / 1000;
+    while (firstActive < pulses.length && elapsed - pulses[firstActive].delaySeconds > .48) firstActive += 1;
+    for (let index = firstActive; index < pulses.length; index += 1) {
+      const pulse = pulses[index];
+      const age = (elapsed - pulse.delaySeconds) / .48;
+      if (age < 0) break;
+      if (age > 1) continue;
+      const center = map.project([pulse.point.longitude, pulse.point.latitude]);
+      let position = center;
+      if (pulse.manual && pulse.fromPoint) {
+        const from = map.project([pulse.fromPoint.longitude, pulse.fromPoint.latitude]);
+        const dx = center.x - from.x;
+        const dy = center.y - from.y;
+        const length = Math.hypot(dx, dy);
+        if (length > 0) position = { x: center.x - dx / length * 11, y: center.y - dy / length * 11 };
+      }
+      const alpha = Math.sin(Math.PI * age) * pulse.opacity;
+      context.beginPath();
+      context.arc(position.x, position.y, 2.5, 0, Math.PI * 2);
+      context.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      context.fill();
+    }
+    if (firstActive < pulses.length) reflectionPulseAnimationFrame = requestAnimationFrame(draw);
+    else clearReflectionPulses();
+  };
+  reflectionPulseAnimationFrame = requestAnimationFrame(draw);
+}
+
 const copyStereo = channels => channels.map(channel => channel.slice());
 
 function monitorRenderKey(reflectors, outputs) {
@@ -1373,15 +1483,15 @@ function createHrtfArrival(context, buffer, event) {
   return { source, frame: event.frame };
 }
 
-function playHrtfMonitor(context, inputMono, lateChannels, reflectors, directArrival, plan) {
+function playHrtfMonitor(context, inputMono, lateChannels, reflectors, directArrival, plan, earlyEvents = null) {
   const inputBuffer = monoAudioBuffer(context, inputMono);
   const lateSource = createRenderedSource(context, lateChannels);
   const onset = plan.playOnset
     ? createHrtfArrival(context, inputBuffer, { frame: 0, gain: SOURCE_ONSET_GAIN * Math.SQRT1_2, spatial: false })
     : null;
-  const arrivals = createEarlyArrivalEvents({
+  const arrivals = (earlyEvents ?? createEarlyArrivalEvents({
     source: state.source, listener: state.listener, reflectors, settings: state.settings.echoField, sampleRate: context.sampleRate
-  })
+  }))
     .map(event => createHrtfArrival(context, inputBuffer, event));
   if (plan.playDirectArrival) arrivals.push(createHrtfArrival(context, inputBuffer, directArrival));
   const startTime = playbackStartTime(context);
@@ -1398,14 +1508,19 @@ async function monitorPlaybackData(context, renderedMode = false) {
     source: state.source, listener: state.listener, settings: state.settings.echoField,
     sampleRate: renderedMode ? WAV_SAMPLE_RATE : context.sampleRate
   });
+  const earlyEvents = createEarlyArrivalEvents({
+    source: state.source, listener: state.listener, reflectors, settings: state.settings.echoField,
+    sampleRate: renderedMode ? WAV_SAMPLE_RATE : context.sampleRate
+  });
   const plan = monitorArrivalPlan(directArrival, state.settings.arrivalsOnly);
   const outputs = hrtfMonitor ? ['late'] : plan.playDirectArrival ? ['wet'] : ['early', 'late'];
   const renderOptions = {
     source: state.source, listener: state.listener, reflectors, heading: state.settings.heading,
-    settings: { ...state.settings.echoField, spatialAudio: true }, distanceMetres, inputMono, outputs
+    settings: { ...state.settings.echoField, spatialAudio: true }, distanceMetres, inputMono, outputs, earlyEvents,
+    maximumVisualEvents: MAXIMUM_LATE_REFLECTION_PULSES
   };
   const rendered = await renderMonitorAudio(monitorRenderKey(reflectors, outputs), renderOptions);
-  return { inputMono, reflectors, hrtfMonitor, directArrival, plan, rendered };
+  return { inputMono, reflectors, hrtfMonitor, directArrival, earlyEvents, plan, rendered };
 }
 
 function spatialMonitorChannels({ inputMono, plan, rendered }) {
@@ -1419,7 +1534,7 @@ async function renderedMonitorChannels(data) {
   if (!data.hrtfMonitor) return spatialMonitorChannels(data);
   const frameCount = data.rendered.late[0].length;
   const context = new OfflineAudioContext(2, frameCount, WAV_SAMPLE_RATE);
-  playHrtfMonitor(context, data.inputMono, data.rendered.late, data.reflectors, data.directArrival, data.plan);
+  playHrtfMonitor(context, data.inputMono, data.rendered.late, data.reflectors, data.directArrival, data.plan, data.earlyEvents);
   const buffer = await context.startRendering();
   return [new Float32Array(buffer.getChannelData(0)), new Float32Array(buffer.getChannelData(1))];
 }
@@ -1429,7 +1544,8 @@ $('#play-button').addEventListener('click', async () => {
   if (state.settings.playbackMode === 'rendered' && renderedPlayback) {
     const context = getAudioContext();
     await context.resume();
-    playRenderedChannels(context, renderedPlayback);
+    animateReflectionPulses(renderedPlayback.earlyEvents, renderedPlayback.reflectors, renderedPlayback.reflectionEvents);
+    playRenderedChannels(context, renderedPlayback.channels);
     return;
   }
   const rendering = state.settings.playbackMode === 'rendered';
@@ -1448,10 +1564,19 @@ $('#play-button').addEventListener('click', async () => {
     const data = await monitorPlaybackData(context, rendering);
     if (rendering) {
       const channels = await renderedMonitorChannels(data);
-      if (revision === playbackRevision) renderedPlayback = channels;
+      if (revision === playbackRevision) renderedPlayback = {
+        channels,
+        earlyEvents: data.earlyEvents,
+        reflectionEvents: data.rendered.reflectionEvents ?? [],
+        reflectors: data.reflectors
+      };
     } else if (data.hrtfMonitor) {
-      playHrtfMonitor(context, data.inputMono, data.rendered.late, data.reflectors, data.directArrival, data.plan);
-    } else playRenderedChannels(context, spatialMonitorChannels(data));
+      animateReflectionPulses(data.earlyEvents, data.reflectors, data.rendered.reflectionEvents);
+      playHrtfMonitor(context, data.inputMono, data.rendered.late, data.reflectors, data.directArrival, data.plan, data.earlyEvents);
+    } else {
+      animateReflectionPulses(data.earlyEvents, data.reflectors, data.rendered.reflectionEvents);
+      playRenderedChannels(context, spatialMonitorChannels(data));
+    }
   } catch (error) {
     if (error?.name !== 'AbortError') console.error(error);
   } finally {

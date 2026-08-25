@@ -27,6 +27,7 @@ export function createProjectManifest({ projectId, projectName, createdAt, sourc
       reflectors: reflectors.map(reflector => ({
         id: reflector.id, position: point(reflector), levelDb: reflector.levelDb, material: reflector.material,
         effectiveMaterial: reflector.effectiveMaterial, reflectionKind: reflector.reflectionKind ?? 'manual',
+        ...(Array.isArray(reflector.visibleReflectorIds) ? { visibleReflectorIds: reflector.visibleReflectorIds } : {}),
         ...(reflector.buildingEdge ? { building: { id: reflector.buildingId ?? null, edge: reflector.buildingEdge, facadeMaterial: reflector.facadeMaterial ?? null } } : {})
       }))
     },

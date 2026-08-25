@@ -196,11 +196,12 @@ const once = build => {
  * Renders the requested outputs and nothing else: a preview that only needs the wet mix never pays
  * for the impulse responses or the stems, and a convolution late field never renders the FDN.
  */
-export async function renderExportAudio({ source, listener, reflectors, heading, settings, distanceMetres, inputMono, sampleRate = WAV_SAMPLE_RATE, outputs = EXPORT_OUTPUTS }) {
+export async function renderExportAudio({ source, listener, reflectors, heading, settings, distanceMetres, inputMono, sampleRate = WAV_SAMPLE_RATE, outputs = EXPORT_OUTPUTS, earlyEvents: suppliedEarlyEvents = null, maximumVisualEvents = 0 }) {
   const wanted = new Set(outputs);
   const spatialAudio = settings.spatialAudio !== false;
-  const earlyEvents = createEarlyArrivalEvents({ source, listener, reflectors, settings, sampleRate });
+  const earlyEvents = suppliedEarlyEvents ?? createEarlyArrivalEvents({ source, listener, reflectors, settings, sampleRate });
   const directEvent = createDirectArrivalEvent({ source, listener, settings, sampleRate });
+  const reflectionEvents = [];
   const { convolutionIrFrames, fdnIrFrames, timelineFrames } = exportFrameLayout({
     settings, earlyFrames: earlyEvents.map(event => event.frame + event.filter.length - 1), directFrame: directEvent.frame + directEvent.filter.length - 1, inputFrames: inputMono.length, sampleRate
   });
@@ -217,7 +218,10 @@ export async function renderExportAudio({ source, listener, reflectors, heading,
     sampleRate, source, listener, reflectors, heading, distanceMetres, durationSeconds: settings.durationSeconds,
     maxBounces: settings.maxBounces, walkCount: settings.lateWalks, cutoffDb: settings.cutoffDb,
     spatialAudio, settings,
-    diffuseEnergyRetention: settings.pointMode === 'persistent' ? settings.pointPersistence : settings.tailPersistence
+    diffuseEnergyRetention: settings.pointMode === 'persistent' ? settings.pointPersistence : settings.tailPersistence,
+    onArrival: maximumVisualEvents > 0 ? event => {
+      if (reflectionEvents.length < maximumVisualEvents) reflectionEvents.push(event);
+    } : null
   }));
 
   const fdnLateIr = once(() => {
@@ -226,6 +230,28 @@ export async function renderExportAudio({ source, listener, reflectors, heading,
       sampleRate, source, listener, reflectors, heading, distanceMetres, tailSeconds: settings.fdnTailSeconds,
       density: settings.fdnDensity, damping: settings.fdnDamping, geometryInfluence: settings.geometryInfluence
     });
+    if (maximumVisualEvents > 0) {
+      const responseSeconds = fdnResponseSeconds(settings);
+      for (let cycle = 1; reflectionEvents.length < maximumVisualEvents; cycle += 1) {
+        let added = false;
+        configuration.delaySamples.forEach((delaySamples, line) => {
+          const seconds = cycle * delaySamples / sampleRate;
+          if (seconds >= responseSeconds || reflectionEvents.length >= maximumVisualEvents) return;
+          const reflector = reflectors[line % reflectors.length];
+          const levelDb = 20 * Math.log10(Math.max(1e-12, configuration.feedback[line] ** cycle));
+          if (levelDb < settings.cutoffDb) return;
+          reflectionEvents.push({
+            reflectorId: reflector.id,
+            previousReflectorId: reflectors[(line - 1 + reflectors.length) % reflectors.length].id,
+            seconds,
+            levelDb,
+            bounce: cycle
+          });
+          added = true;
+        });
+        if (!added) break;
+      }
+    }
     if (!spatialAudio) configuration.outputGains = configuration.outputGains.map(() => [Math.SQRT1_2, Math.SQRT1_2]);
     return colorFdnResponse(renderFdnImpulse(configuration, fdnIrFrames), configuration, reflectors, settings, sampleRate);
   });
@@ -244,6 +270,7 @@ export async function renderExportAudio({ source, listener, reflectors, heading,
     fdnSeconds: fdnResponseSeconds(settings),
     timelineSeconds: timelineFrames / sampleRate
   };
+  if (maximumVisualEvents > 0) rendered.reflectionEvents = reflectionEvents;
 
   if (wanted.has('convolutionIr')) {
     const channels = stereo(convolutionIrFrames);

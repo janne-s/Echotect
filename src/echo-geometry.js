@@ -94,9 +94,57 @@ export function reflectionField({ source, listener, walls, radiusMetres }) {
     const b = space.toXY(wall.edge[1]);
     if (Math.max(a.x, b.x) < minimumX || Math.min(a.x, b.x) > maximumX) continue;
     if (Math.max(a.y, b.y) < minimumY || Math.min(a.y, b.y) > maximumY) continue;
-    obstacles.push({ key: wall.key, a, b });
+    obstacles.push({
+      key: wall.key,
+      a,
+      b,
+      minimumX: Math.min(a.x, b.x),
+      maximumX: Math.max(a.x, b.x),
+      minimumY: Math.min(a.y, b.y),
+      maximumY: Math.max(a.y, b.y)
+    });
   }
   return { space, source, listener, sourceXY, obstacles, radiusMetres };
+}
+
+/**
+ * Builds the reflector visibility graph once so recursive path searches do not ray cast at every
+ * bounce. Endpoint walls are ignored: touching the wall that owns a reflection point is expected.
+ */
+export function reflectorVisibilityGraph(field, reflectors) {
+  const projected = reflectors.map(reflector => ({
+    reflector,
+    point: field.space.toXY([reflector.longitude, reflector.latitude]),
+    wallKey: reflector.buildingEdge ? edgeKey(reflector.buildingEdge) : null,
+    visible: []
+  }));
+  const parameters = { first: 0, second: 0 };
+  for (let first = 0; first < projected.length; first += 1) {
+    for (let second = first + 1; second < projected.length; second += 1) {
+      const a = projected[first];
+      const b = projected[second];
+      const minimumX = Math.min(a.point.x, b.point.x);
+      const maximumX = Math.max(a.point.x, b.point.x);
+      const minimumY = Math.min(a.point.y, b.point.y);
+      const maximumY = Math.max(a.point.y, b.point.y);
+      let visible = true;
+      for (const obstacle of field.obstacles) {
+        if (obstacle.key === a.wallKey || obstacle.key === b.wallKey) continue;
+        if (obstacle.maximumX < minimumX || obstacle.minimumX > maximumX
+          || obstacle.maximumY < minimumY || obstacle.minimumY > maximumY) continue;
+        if (!intersectionParameters(a.point, b.point, obstacle.a, obstacle.b, parameters)) continue;
+        if (parameters.first > ENDPOINT_EPSILON && parameters.first < 1 - ENDPOINT_EPSILON
+          && parameters.second > ENDPOINT_EPSILON && parameters.second < 1 - ENDPOINT_EPSILON) {
+          visible = false;
+          break;
+        }
+      }
+      if (!visible) continue;
+      a.visible.push(b.reflector.id);
+      b.visible.push(a.reflector.id);
+    }
+  }
+  return new Map(projected.map(item => [item.reflector.id, item.visible]));
 }
 
 /**

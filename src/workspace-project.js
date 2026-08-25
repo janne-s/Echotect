@@ -21,7 +21,10 @@ function projectReflector(value) {
     ...(validEdge(value.buildingEdge) ? { buildingEdge: value.buildingEdge } : {}),
     ...(typeof value.buildingId === 'string' || typeof value.buildingId === 'number' ? { buildingId: value.buildingId } : {}),
     ...(typeof value.facadeMaterial === 'string' ? { facadeMaterial: value.facadeMaterial } : {}),
-    ...(['specular', 'diffuse'].includes(value.reflectionKind) ? { reflectionKind: value.reflectionKind } : {})
+    ...(['specular', 'diffuse'].includes(value.reflectionKind) ? { reflectionKind: value.reflectionKind } : {}),
+    ...(Array.isArray(value.visibleReflectorIds) ? {
+      visibleReflectorIds: [...new Set(value.visibleReflectorIds.filter(id => typeof id === 'string' && id))].slice(0, 4096)
+    } : {})
   };
 }
 

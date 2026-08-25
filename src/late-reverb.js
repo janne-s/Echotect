@@ -35,7 +35,7 @@ function addArrival(bandChannels, sample, bandGains, pan, random) {
   }));
 }
 
-export function synthesizeLateReverb({ sampleRate, source, listener, reflectors, heading, distanceMetres, durationSeconds = 10, maxBounces = 32, walkCount = 8192, cutoffDb = -90, spatialAudio = true, settings = {}, diffuseEnergyRetention = .6 }) {
+export function synthesizeLateReverb({ sampleRate, source, listener, reflectors, heading, distanceMetres, durationSeconds = 10, maxBounces = 32, walkCount = 8192, cutoffDb = -90, spatialAudio = true, settings = {}, diffuseEnergyRetention = .6, onArrival = null }) {
   const length = Math.ceil(sampleRate * durationSeconds);
   const channels = [new Float32Array(length), new Float32Array(length)];
   if (reflectors.length < 2) return channels;
@@ -45,6 +45,11 @@ export function synthesizeLateReverb({ sampleRate, source, listener, reflectors,
   const random = randomGenerator(geometrySeed(source, listener, reflectors));
   const boundedWalkCount = Math.max(1, walkCount);
   const walkNormalization = Math.sqrt(boundedWalkCount);
+  const visibility = settings.buildingOcclusion
+    ? new Map(reflectors.map(reflector => [reflector.id, Array.isArray(reflector.visibleReflectorIds)
+      ? new Set(reflector.visibleReflectorIds)
+      : null]))
+    : null;
   const referencePathMetres = geometryReferencePathMetres(distanceMetres(source, listener),
     reflectors.map(reflector => distanceMetres(source, reflector) + distanceMetres(reflector, listener)));
   for (let walk = 0; walk < boundedWalkCount; walk += 1) {
@@ -62,12 +67,20 @@ export function synthesizeLateReverb({ sampleRate, source, listener, reflectors,
       if (maximumBandLevelDb(audibleBandGains) < cutoffDb) break;
       const bandGains = audibleBandGains.map(gain => gain / walkNormalization);
       if (bounce >= 2) {
+        onArrival?.({
+          reflectorId: current.id,
+          previousReflectorId: path.at(-2)?.id ?? null,
+          seconds: propagationSeconds(travelledMetres),
+          levelDb: maximumBandLevelDb(audibleBandGains),
+          bounce
+        });
         addArrival(bandChannels, Math.round(arrivalSeconds * sampleRate), bandGains, stereoPan(listener, current, heading, spatialAudio), random);
       }
 
       let next = current;
       for (let attempt = 0; attempt < NEXT_REFLECTOR_ATTEMPTS && next.id === current.id; attempt += 1) {
         next = reflectors[Math.floor(random() * reflectors.length)];
+        if (visibility?.get(current.id) && !visibility.get(current.id).has(next.id)) next = current;
       }
       if (next.id === current.id) break;
       travelledMetres += distanceMetres(current, next);
