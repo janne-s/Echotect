@@ -59,7 +59,7 @@ export function createWorkspaceProject({ project, source, listener, reflectors, 
     mapView,
     geometry: { source, listener, pointsLinked, reflectors: manual, echoFieldReflectors: automatic },
     levels: { globalReflectionLevelDb, globalMaterial },
-    monitor: { heading: settings.heading, arrivalsOnly: settings.arrivalsOnly, panningMode: settings.panningMode },
+    monitor: { heading: settings.heading, arrivalsOnly: settings.arrivalsOnly, panningMode: settings.panningMode, playbackMode: settings.playbackMode },
     echoField: { enabled: echoFieldEnabled, radiusMetres: settings.echoFieldRadiusMetres },
     settings: settings.echoField
   };
@@ -94,6 +94,7 @@ export function parseWorkspaceProject(text) {
       heading,
       arrivalsOnly: Boolean(value.monitor?.arrivalsOnly),
       panningMode: value.monitor?.panningMode === 'spatial-stereo' ? 'spatial-stereo' : 'hrtf-live',
+      playbackMode: value.monitor?.playbackMode === 'rendered' ? 'rendered' : 'live',
       echoFieldRadiusMetres: radiusMetres,
       echoField: normalizeEchoFieldSettings(value.settings)
     },

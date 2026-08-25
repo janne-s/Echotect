@@ -65,6 +65,7 @@ function defaultWorkspace() {
       heading: HEADING_RANGE.fallback,
       arrivalsOnly: false,
       panningMode: 'hrtf-live',
+      playbackMode: 'live',
       echoFieldRadiusMetres: DEFAULT_ECHO_FIELD_RADIUS_METRES,
       echoField: { ...DEFAULT_ECHO_FIELD_SETTINGS }
     }
@@ -97,6 +98,7 @@ function storedWorkspace() {
         heading: boundedValue(saved.settings?.heading, HEADING_RANGE),
         arrivalsOnly: Boolean(saved.settings?.arrivalsOnly),
         panningMode: saved.settings?.panningMode === 'spatial-stereo' ? 'spatial-stereo' : 'hrtf-live',
+        playbackMode: saved.settings?.playbackMode === 'rendered' ? 'rendered' : 'live',
         echoFieldRadiusMetres: Math.max(MINIMUM_ECHO_FIELD_RADIUS_METRES, Number.isFinite(saved.settings?.echoFieldRadiusMetres) ? saved.settings.echoFieldRadiusMetres : DEFAULT_ECHO_FIELD_RADIUS_METRES),
         echoField: normalizeEchoFieldSettings(saved.settings?.echoField)
       }
@@ -115,6 +117,9 @@ let importedAudioName = null;
 let defaultHandclapBuffer = null;
 let audioSourceRevision = 0;
 let monitorRenderCache = null;
+let renderedPlayback = null;
+let renderingPlayback = false;
+let playbackRevision = 0;
 let lastSearchAt = 0;
 let hoveredBuildingEdge = null;
 let automaticReflectors = [];
@@ -177,6 +182,7 @@ let workspaceSaveTimer = null;
 
 /** Continuous interaction schedules a save; a save is only written once the interaction settles. */
 function scheduleSave() {
+  invalidateRenderedPlayback();
   clearTimeout(workspaceSaveTimer);
   workspaceSaveTimer = setTimeout(saveWorkspace, WORKSPACE_SAVE_DELAY_MS);
 }
@@ -214,6 +220,7 @@ function syncWorkspaceControls() {
   $('#heading-arrow').style.transform = `rotate(${state.settings.heading}deg)`;
   $('#arrivals-only').checked = state.settings.arrivalsOnly;
   $('#panning-mode').value = state.settings.panningMode;
+  syncPlayButton();
 }
 
 syncWorkspaceControls();
@@ -694,6 +701,7 @@ function rebuildEchoField() {
   candidates.sort((a, b) => a.rank - b.rank);
   const maximumSurfaces = state.settings.echoField.maxSurfaces;
   automaticReflectors = candidates.slice(0, maximumSurfaces);
+  invalidateRenderedPlayback();
   const button = $('#echo-field-button');
   button.textContent = `Echo field · ${automaticReflectors.length}${candidates.length > maximumSurfaces ? '+' : ''}`;
   button.title = `${state.settings.echoFieldRadiusMetres.toFixed(0)} m radius · ${automaticReflectors.length} active surfaces`;
@@ -864,6 +872,7 @@ Object.entries(echoSettingInputs).forEach(([setting, selector]) => {
 });
 
 $('#echo-settings-button').addEventListener('click', () => {
+  $('#setting-playback-mode').value = state.settings.playbackMode;
   $('#setting-late-mode').value = state.settings.echoField.lateMode;
   $('#setting-point-mode').value = state.settings.echoField.pointMode;
   $('#setting-air-mode').value = state.settings.echoField.airMode;
@@ -882,6 +891,7 @@ $('#echo-settings-button').addEventListener('click', () => {
 
 $('#echo-settings-dialog').addEventListener('close', event => {
   if (event.currentTarget.returnValue !== 'save') return;
+  state.settings.playbackMode = $('#setting-playback-mode').value === 'rendered' ? 'rendered' : 'live';
   state.settings.echoField = normalizeEchoFieldSettings({
     ...Object.fromEntries(Object.keys(echoSettingInputs).map(setting => [setting, $(echoSettingInputs[setting]).value])),
     lateMode: $('#setting-late-mode').value,
@@ -889,6 +899,7 @@ $('#echo-settings-dialog').addEventListener('close', event => {
     airMode: $('#setting-air-mode').value
   });
   scheduleSave();
+  syncPlayButton();
   if (echoFieldEnabled) rebuildEchoField();
 });
 
@@ -1259,6 +1270,23 @@ async function loadDefaultHandclap(context) {
   return defaultHandclapBuffer;
 }
 
+function syncPlayButton() {
+  const button = $('#play-button');
+  if (!button) return;
+  if (renderingPlayback) button.textContent = 'Rendering…';
+  else if (state.settings.playbackMode === 'rendered') button.textContent = renderedPlayback ? 'Play render' : 'Render';
+  else button.textContent = 'Play impulse';
+  button.disabled = renderingPlayback;
+  if (renderingPlayback) button.setAttribute('aria-busy', 'true');
+  else button.removeAttribute('aria-busy');
+}
+
+function invalidateRenderedPlayback() {
+  playbackRevision += 1;
+  renderedPlayback = null;
+  syncPlayButton();
+}
+
 const playbackStartTime = context => context.currentTime + (context.baseLatency ?? 0) + (context.outputLatency ?? 0);
 
 function releaseWhenFinished(source, nodes) {
@@ -1295,6 +1323,7 @@ function monitorRenderKey(reflectors, outputs) {
 function changeAudioSource() {
   audioSourceRevision += 1;
   monitorRenderCache = null;
+  invalidateRenderedPlayback();
 }
 
 async function renderMonitorAudio(key, options) {
@@ -1363,42 +1392,73 @@ function playHrtfMonitor(context, inputMono, lateChannels, reflectors, directArr
   arrivals.forEach(arrival => arrival.source.start(startTime + arrival.frame / context.sampleRate));
 }
 
+async function monitorPlaybackData(context, renderedMode = false) {
+  const inputMono = resampleToMono(importedAudioBuffer ?? await loadDefaultHandclap(context));
+  const reflectors = exportReflectors();
+  const hrtfMonitor = state.settings.panningMode === 'hrtf-live';
+  const directArrival = createDirectArrivalEvent({
+    source: state.source, listener: state.listener, settings: state.settings.echoField,
+    sampleRate: renderedMode ? WAV_SAMPLE_RATE : context.sampleRate
+  });
+  const plan = monitorArrivalPlan(directArrival, state.settings.arrivalsOnly);
+  const outputs = hrtfMonitor ? ['late'] : plan.playDirectArrival ? ['wet'] : ['early', 'late'];
+  const renderOptions = {
+    source: state.source, listener: state.listener, reflectors, heading: state.settings.heading,
+    settings: { ...state.settings.echoField, spatialAudio: true }, distanceMetres, inputMono, outputs
+  };
+  const rendered = await renderMonitorAudio(monitorRenderKey(reflectors, outputs), renderOptions);
+  return { inputMono, reflectors, hrtfMonitor, directArrival, plan, rendered };
+}
+
+function spatialMonitorChannels({ inputMono, plan, rendered }) {
+  const channels = copyStereo(rendered.wet ?? rendered.early);
+  if (!rendered.wet) addStereo(channels, rendered.late);
+  if (plan.playOnset) addSourceOnset(channels, inputMono);
+  return channels;
+}
+
+async function renderedMonitorChannels(data) {
+  if (!data.hrtfMonitor) return spatialMonitorChannels(data);
+  const frameCount = data.rendered.late[0].length;
+  const context = new OfflineAudioContext(2, frameCount, WAV_SAMPLE_RATE);
+  playHrtfMonitor(context, data.inputMono, data.rendered.late, data.reflectors, data.directArrival, data.plan);
+  const buffer = await context.startRendering();
+  return [new Float32Array(buffer.getChannelData(0)), new Float32Array(buffer.getChannelData(1))];
+}
+
 $('#play-button').addEventListener('click', async () => {
   const button = $('#play-button');
-  button.disabled = true;
-  button.setAttribute('aria-busy', 'true');
+  if (state.settings.playbackMode === 'rendered' && renderedPlayback) {
+    const context = getAudioContext();
+    await context.resume();
+    playRenderedChannels(context, renderedPlayback);
+    return;
+  }
+  const rendering = state.settings.playbackMode === 'rendered';
+  const revision = playbackRevision;
+  if (rendering) {
+    renderingPlayback = true;
+    syncPlayButton();
+  } else {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+  }
   await new Promise(resolve => requestAnimationFrame(resolve));
   try {
     const context = getAudioContext();
     await context.resume();
-    const inputMono = resampleToMono(importedAudioBuffer ?? await loadDefaultHandclap(context));
-    const reflectors = exportReflectors();
-    // The monitor renders one mix: the live HRTF field pans the arrivals itself and needs the late
-    // response only, while spatial stereo plays the canonical wet render.
-    const hrtfMonitor = state.settings.panningMode === 'hrtf-live';
-    const directArrival = createDirectArrivalEvent({
-      source: state.source, listener: state.listener, settings: state.settings.echoField, sampleRate: context.sampleRate
-    });
-    const plan = monitorArrivalPlan(directArrival, state.settings.arrivalsOnly);
-    // Without the direct arrival the wet mix is not the right monitor mix, so its parts are asked for.
-    const outputs = hrtfMonitor ? ['late'] : plan.playDirectArrival ? ['wet'] : ['early', 'late'];
-    const renderOptions = {
-      source: state.source, listener: state.listener, reflectors, heading: state.settings.heading,
-      settings: { ...state.settings.echoField, spatialAudio: true }, distanceMetres, inputMono, outputs
-    };
-    const rendered = await renderMonitorAudio(monitorRenderKey(reflectors, outputs), renderOptions);
-    if (hrtfMonitor) playHrtfMonitor(context, inputMono, rendered.late, reflectors, directArrival, plan);
-    else {
-      const channels = copyStereo(rendered.wet ?? rendered.early);
-      if (!rendered.wet) addStereo(channels, rendered.late);
-      if (plan.playOnset) addSourceOnset(channels, inputMono);
-      playRenderedChannels(context, channels);
-    }
+    const data = await monitorPlaybackData(context, rendering);
+    if (rendering) {
+      const channels = await renderedMonitorChannels(data);
+      if (revision === playbackRevision) renderedPlayback = channels;
+    } else if (data.hrtfMonitor) {
+      playHrtfMonitor(context, data.inputMono, data.rendered.late, data.reflectors, data.directArrival, data.plan);
+    } else playRenderedChannels(context, spatialMonitorChannels(data));
   } catch (error) {
     if (error?.name !== 'AbortError') console.error(error);
   } finally {
-    button.disabled = false;
-    button.removeAttribute('aria-busy');
+    if (rendering) renderingPlayback = false;
+    syncPlayButton();
   }
 });
 

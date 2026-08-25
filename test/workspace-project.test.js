@@ -8,7 +8,7 @@ const workspace = {
   reflectors: [{ id: 'manual-1', latitude: 60.15, longitude: 24.95, levelDb: -6, material: 'brick' }],
   automaticReflectors: [{ id: 'area-1', latitude: 60.16, longitude: 24.96, levelDb: -15, material: 'concrete', buildingEdge: [[24.95, 60.15], [24.97, 60.17]], reflectionKind: 'specular' }],
   pointsLinked: false, globalReflectionLevelDb: -6, globalMaterial: 'generic', echoFieldEnabled: true,
-  settings: { heading: 123, arrivalsOnly: true, panningMode: 'hrtf-live', echoFieldRadiusMetres: 180, echoField: { pointMode: 'persistent', lateMode: 'convolution', airMode: 'standard' } },
+  settings: { heading: 123, arrivalsOnly: true, panningMode: 'hrtf-live', playbackMode: 'rendered', echoFieldRadiusMetres: 180, echoField: { pointMode: 'persistent', lateMode: 'convolution', airMode: 'standard' } },
   mapView: { latitude: 60.2, longitude: 25, zoom: 16 }
 };
 
@@ -19,6 +19,7 @@ test('workspace project round-trips editable state without derived echo data', (
   const opened = parseWorkspaceProject(JSON.stringify(file));
   assert.equal(opened.settings.heading, 123);
   assert.equal(opened.settings.panningMode, 'hrtf-live');
+  assert.equal(opened.settings.playbackMode, 'rendered');
   assert.equal(opened.settings.echoFieldRadiusMetres, 180);
   assert.equal(opened.automaticReflectors[0].buildingEdge.length, 2);
   assert.equal(opened.echoFieldEnabled, true);
@@ -27,6 +28,12 @@ test('workspace project round-trips editable state without derived echo data', (
 
 test('export manifests are not accepted as editable workspace projects', () => {
   assert.throws(() => parseWorkspaceProject(JSON.stringify({ format: 'echotect-project' })), /not an Echotect project/);
+});
+
+test('older workspace projects default to live playback', () => {
+  const file = createWorkspaceProject(workspace);
+  delete file.monitor.playbackMode;
+  assert.equal(parseWorkspaceProject(JSON.stringify(file)).settings.playbackMode, 'live');
 });
 
 test('invalid reflector geometry rejects the whole project before state changes', () => {
