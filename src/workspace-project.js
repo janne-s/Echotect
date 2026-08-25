@@ -32,13 +32,30 @@ function reflectorList(value, label) {
   return reflectors;
 }
 
-export function createWorkspaceProject({ project, source, listener, reflectors, automaticReflectors, pointsLinked, globalReflectionLevelDb, globalMaterial, settings, echoFieldEnabled, mapView, savedAt = new Date().toISOString() }) {
+function projectBackground(value) {
+  if (value == null) return null;
+  if (!['image/png', 'image/jpeg', 'image/webp'].some(type => value.dataUrl?.startsWith(`data:${type};base64,`))) throw new Error('Project background image data is invalid.');
+  if (!isValidCoordinate(value.center) || !Number.isFinite(value.pixelWidth) || value.pixelWidth <= 0 || !Number.isFinite(value.pixelHeight) || value.pixelHeight <= 0) throw new Error('Project background image geometry is invalid.');
+  return {
+    name: typeof value.name === 'string' && value.name ? value.name : 'Background image',
+    dataUrl: value.dataUrl,
+    pixelWidth: value.pixelWidth,
+    pixelHeight: value.pixelHeight,
+    center: { latitude: value.center.latitude, longitude: value.center.longitude },
+    widthMetres: Math.max(1, Math.min(100000, Number.isFinite(value.widthMetres) ? value.widthMetres : 100)),
+    rotationDegrees: Math.max(-180, Math.min(180, Number.isFinite(value.rotationDegrees) ? value.rotationDegrees : 0)),
+    opacity: Math.max(.1, Math.min(1, Number.isFinite(value.opacity) ? value.opacity : .75))
+  };
+}
+
+export function createWorkspaceProject({ project, source, listener, reflectors, automaticReflectors, pointsLinked, globalReflectionLevelDb, globalMaterial, settings, echoFieldEnabled, mapView, background = null, savedAt = new Date().toISOString() }) {
   const manual = reflectorList(reflectors, 'Project reflectors');
   const automatic = reflectorList(automaticReflectors, 'Echo field reflectors');
   if (new Set([...manual, ...automatic].map(reflector => reflector.id)).size !== manual.length + automatic.length) throw new Error('All project reflector ids must be unique.');
   return {
     format: WORKSPACE_PROJECT_FORMAT,
     project: { id: project.id, name: project.name, createdAt: project.createdAt, savedAt },
+    background: projectBackground(background),
     mapView,
     geometry: { source, listener, pointsLinked, reflectors: manual, echoFieldReflectors: automatic },
     levels: { globalReflectionLevelDb, globalMaterial },
@@ -81,6 +98,7 @@ export function parseWorkspaceProject(text) {
       echoField: normalizeEchoFieldSettings(value.settings)
     },
     echoFieldEnabled: Boolean(value.echoField?.enabled),
+    background: projectBackground(value.background),
     mapView
   };
 }

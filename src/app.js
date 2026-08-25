@@ -4,6 +4,7 @@ import { DEFAULT_ECHO_FIELD_SETTINGS, ECHO_FIELD_SETTINGS, normalizeEchoFieldSet
 import { edgeKey, reflectionField, wallReflectionCandidate } from './echo-geometry.js';
 import { exportFrameLayout } from './export-layout.js';
 import { distanceMetres, isValidCoordinate, metresPerDegreeLatitude, metresPerDegreeLongitude, parseCoordinates, reflectionMetrics } from './geo.js';
+import { IMAGE_OPACITY_RANGE, IMAGE_WIDTH_RANGE, imageCoordinates, transformImageEdge, transformImagePoint } from './image-background.js';
 import { effectiveMaterial, MATERIAL_LABELS, normalizeFacadeMaterial } from './materials.js';
 import { addStereo, renderExportAudio, resampleToMono } from './offline-export.js';
 import { createProjectManifest, validateProjectManifest } from './project-manifest.js';
@@ -30,6 +31,10 @@ const DEFAULT_SOUND_NAME = 'handclap.wav';
 const DEFAULT_ECHO_FIELD_RADIUS_METRES = 100;
 const DEFAULT_PROJECT_NAME = 'Echotect Project';
 const WORKSPACE_SAVE_DELAY_MS = 400;
+const MAXIMUM_BACKGROUND_IMAGE_BYTES = 20 * 1024 * 1024;
+const IMAGE_SOURCE_ID = 'echotect-background-image';
+const IMAGE_LAYER_ID = 'echotect-background-image';
+const IMAGE_SCALE_SOURCE_ID = 'echotect-image-scale';
 
 const validEdge = edge => Array.isArray(edge) && edge.length === 2
   && edge.every(point => Array.isArray(point) && point.length >= 2 && point.every(Number.isFinite));
@@ -116,6 +121,11 @@ let echoFieldEnabled = false;
 let echoFieldUsesSavedReflectors = false;
 let echoFieldHandle = null;
 let echoFieldUpdateTimer = null;
+let imageBackground = null;
+let activeImagePanel = null;
+let imageScalePoints = [];
+let imageScaleCursor = null;
+let renderedImageDataUrl = null;
 
 const protocol = new pmtiles.Protocol();
 maplibregl.addProtocol('pmtiles', protocol.tile);
@@ -141,7 +151,7 @@ const map = new maplibregl.Map({
     }]
   }
 });
-map.addControl(new maplibregl.NavigationControl(), 'bottom-left');
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }));
 
 map.on('moveend', () => {
@@ -339,6 +349,149 @@ function syncRoutes() {
   if (edgeSource) edgeSource.setData(buildingEdgesGeoJson());
 }
 
+function removeImageLayer() {
+  if (map.getLayer(IMAGE_LAYER_ID)) map.removeLayer(IMAGE_LAYER_ID);
+  if (map.getSource(IMAGE_SOURCE_ID)) map.removeSource(IMAGE_SOURCE_ID);
+  renderedImageDataUrl = null;
+}
+
+function syncImageLayer() {
+  if (!map.isStyleLoaded()) return;
+  if (map.getLayer('osm')) map.setLayoutProperty('osm', 'visibility', imageBackground ? 'none' : 'visible');
+  if (!imageBackground) {
+    removeImageLayer();
+    return;
+  }
+  const source = map.getSource(IMAGE_SOURCE_ID);
+  if (source && renderedImageDataUrl === imageBackground.dataUrl) {
+    source.setCoordinates(imageCoordinates(imageBackground));
+    map.setPaintProperty(IMAGE_LAYER_ID, 'raster-opacity', imageBackground.opacity);
+    return;
+  }
+  removeImageLayer();
+  map.addSource(IMAGE_SOURCE_ID, { type: 'image', url: imageBackground.dataUrl, coordinates: imageCoordinates(imageBackground) });
+  map.addLayer({
+    id: IMAGE_LAYER_ID,
+    type: 'raster',
+    source: IMAGE_SOURCE_ID,
+    paint: { 'raster-opacity': imageBackground.opacity, 'raster-fade-duration': 0 }
+  }, map.getLayer('direct-route') ? 'direct-route' : undefined);
+  renderedImageDataUrl = imageBackground.dataUrl;
+}
+
+function syncImageModeControls() {
+  const active = Boolean(imageBackground);
+  const imageButton = $('#image-background-button');
+  imageButton.setAttribute('aria-pressed', String(active));
+  imageButton.textContent = 'Image';
+  $('#image-editor').hidden = !active;
+  if (active) {
+    $('#image-background-rotation').value = imageBackground.rotationDegrees;
+    $('#image-background-opacity').value = imageBackground.opacity;
+    syncImageSettingOutputs();
+  } else {
+    closeImagePanel();
+  }
+  const buildingsButton = $('#buildings-button');
+  buildingsButton.disabled = active;
+  buildingsButton.setAttribute('aria-pressed', String(active ? false : state.buildingsVisible));
+  buildingsButton.title = active ? 'Building data is unavailable with an image background' : state.buildingsVisible ? 'Hide building data' : 'Load building data';
+  $('#echo-field-button').disabled = active || !state.buildingsVisible;
+}
+
+function imageScaleGeoJson() {
+  const guidePoints = imageScalePoints.length === 1 && imageScaleCursor
+    ? [...imageScalePoints, imageScaleCursor]
+    : imageScalePoints;
+  return {
+    type: 'FeatureCollection',
+    features: [
+      ...guidePoints.map(point => ({
+        type: 'Feature', properties: {},
+        geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] }
+      })),
+      ...(guidePoints.length === 2 ? [{
+        type: 'Feature', properties: {},
+        geometry: { type: 'LineString', coordinates: guidePoints.map(point => [point.longitude, point.latitude]) }
+      }] : [])
+    ]
+  };
+}
+
+function syncImageScaleGuide() {
+  map.getSource(IMAGE_SCALE_SOURCE_ID)?.setData(imageScaleGeoJson());
+  const instruction = $('#image-scale-instruction');
+  const measurement = $('#image-scale-measurement');
+  if (!instruction) return;
+  const measuredPoint = imageScalePoints.length === 2 ? imageScalePoints[1] : imageScaleCursor;
+  const hasMeasurement = imageScalePoints.length > 0 && measuredPoint;
+  measurement.hidden = !hasMeasurement;
+  measurement.textContent = hasMeasurement ? `${formatDistance(distanceMetres(imageScalePoints[0], measuredPoint))} at current scale` : '';
+  if (!imageScalePoints.length) instruction.textContent = 'Select two points with a known distance on the image.';
+  else if (imageScalePoints.length === 1) instruction.textContent = 'Select the other end of the known distance.';
+  else instruction.textContent = 'Enter the known distance and set the scale.';
+  $('#apply-image-scale').disabled = imageScalePoints.length !== 2;
+}
+
+function closeImagePanel() {
+  activeImagePanel = null;
+  imageScalePoints = [];
+  imageScaleCursor = null;
+  document.querySelectorAll('[data-image-panel]').forEach(button => button.setAttribute('aria-pressed', 'false'));
+  document.querySelectorAll('[data-image-editor-panel]').forEach(panel => { panel.hidden = true; });
+  syncImageScaleGuide();
+  map.getCanvas().style.cursor = '';
+}
+
+function openImagePanel(name) {
+  const next = activeImagePanel === name ? null : name;
+  closeImagePanel();
+  activeImagePanel = next;
+  if (next) {
+    activeTool = null;
+    document.querySelectorAll('[data-tool]').forEach(button => button.classList.remove('active'));
+    clearBuildingHover();
+  }
+  document.querySelectorAll('[data-image-panel]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.imagePanel === next)));
+  document.querySelectorAll('[data-image-editor-panel]').forEach(panel => { panel.hidden = panel.dataset.imageEditorPanel !== next; });
+  if (next === 'scale') map.getCanvas().style.cursor = 'crosshair';
+}
+
+function transformPlacedGeometry(previous, next) {
+  state.source = transformImagePoint(state.source, previous, next);
+  state.listener = transformImagePoint(state.listener, previous, next);
+  state.reflectors.forEach(reflector => {
+    Object.assign(reflector, transformImagePoint(reflector, previous, next));
+    if (reflector.buildingEdge) reflector.buildingEdge = transformImageEdge(reflector.buildingEdge, previous, next);
+  });
+}
+
+function setImageBackground(next, { fit = false, transformGeometry = true } = {}) {
+  const previous = imageBackground;
+  const geometryChanged = previous && next && (
+    previous.widthMetres !== next.widthMetres || previous.rotationDegrees !== next.rotationDegrees ||
+    previous.center.latitude !== next.center.latitude || previous.center.longitude !== next.center.longitude
+  );
+  if (geometryChanged && transformGeometry) transformPlacedGeometry(previous, next);
+  if (next && echoFieldEnabled) setEchoFieldEnabled(false);
+  if (next && state.buildingsVisible) {
+    state.buildingsVisible = false;
+    if (map.getSource('overture-buildings')) setBuildingLayerVisibility(false);
+    clearBuildingHover();
+  }
+  imageBackground = next;
+  syncImageLayer();
+  syncImageModeControls();
+  syncMarkers();
+  render();
+  monitorRenderCache = null;
+  scheduleSave();
+  if (next && fit) {
+    const bounds = imageCoordinates(next).reduce((value, coordinate) => value.extend(coordinate), new maplibregl.LngLatBounds());
+    map.fitBounds(bounds, { padding: 40, duration: 0 });
+  }
+}
+
 function materialOptions(selected, reflector) {
   const dataMaterial = normalizeFacadeMaterial(reflector.facadeMaterial);
   return Object.entries(MATERIAL_LABELS).map(([value, label]) =>
@@ -457,6 +610,11 @@ map.on('load', () => {
   map.addSource('echo-field', { type: 'geojson', data: circleGeoJson() });
   map.addLayer({ id: 'echo-field-fill', type: 'fill', source: 'echo-field', paint: { 'fill-color': ACCENT_COLOR, 'fill-opacity': .045 } });
   map.addLayer({ id: 'echo-field-line', type: 'line', source: 'echo-field', paint: { 'line-color': ACCENT_COLOR, 'line-width': 2, 'line-opacity': .9 } });
+  map.addSource(IMAGE_SCALE_SOURCE_ID, { type: 'geojson', data: imageScaleGeoJson() });
+  map.addLayer({ id: `${IMAGE_SCALE_SOURCE_ID}-line`, type: 'line', source: IMAGE_SCALE_SOURCE_ID, filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': ACCENT_COLOR, 'line-width': 4, 'line-opacity': 1, 'line-dasharray': [1, 1] } });
+  map.addLayer({ id: `${IMAGE_SCALE_SOURCE_ID}-points`, type: 'circle', source: IMAGE_SCALE_SOURCE_ID, filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 6, 'circle-color': ACCENT_COLOR, 'circle-stroke-width': 3, 'circle-stroke-color': '#111' } });
+  syncImageLayer();
+  syncImageModeControls();
   syncMarkers(); render();
 });
 
@@ -546,6 +704,12 @@ function scheduleEchoFieldUpdate() {
 }
 
 map.on('mousemove', event => {
+  if (activeImagePanel === 'scale' && imageBackground) {
+    imageScaleCursor = pointFromLngLat(event.lngLat);
+    syncImageScaleGuide();
+    map.getCanvas().style.cursor = 'crosshair';
+    return;
+  }
   if (activeTool !== 'reflector' || !state.buildingsVisible || !map.getLayer('overture-building-fill')) {
     if (hoveredBuildingEdge) clearBuildingHover();
     return;
@@ -560,6 +724,13 @@ map.on('mousemove', event => {
 map.on('mouseout', clearBuildingHover);
 
 map.on('click', event => {
+  if (activeImagePanel === 'scale' && imageBackground) {
+    const point = pointFromLngLat(event.lngLat);
+    imageScalePoints = imageScalePoints.length < 2 ? [...imageScalePoints, point] : [point];
+    imageScaleCursor = null;
+    syncImageScaleGuide();
+    return;
+  }
   if (!activeTool) return;
   const point = pointFromLngLat(event.lngLat);
   if (activeTool === 'source') {
@@ -716,6 +887,91 @@ $('#echo-settings-dialog').addEventListener('close', event => {
   if (echoFieldEnabled) rebuildEchoField();
 });
 
+function imageFileData(file) {
+  if (file.size > MAXIMUM_BACKGROUND_IMAGE_BYTES) throw new Error('The image must be 20 MB or smaller.');
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('The image could not be read.'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('The selected file is not a supported image.'));
+      image.onload = () => resolve({ dataUrl: reader.result, pixelWidth: image.naturalWidth, pixelHeight: image.naturalHeight });
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function syncImageSettingOutputs() {
+  $('#image-background-rotation-value').textContent = `${Number($('#image-background-rotation').value)}°`;
+  $('#image-background-opacity-value').textContent = `${Math.round(Number($('#image-background-opacity').value) * 100)}%`;
+}
+
+$('#image-background-button').addEventListener('click', async () => {
+  if (imageBackground) {
+    const confirmed = await requestConfirmation({
+      title: 'Return to map mode?',
+      message: 'Exit Image mode and return to the map? Placed points remain in their current positions.',
+      confirmLabel: 'Return to map'
+    });
+    if (confirmed) setImageBackground(null, { transformGeometry: false });
+    return;
+  }
+  $('#image-background-file').value = '';
+  $('#image-background-file').click();
+});
+
+$('#replace-image-background').addEventListener('click', () => {
+  $('#image-background-file').value = '';
+  $('#image-background-file').click();
+});
+
+$('#image-background-file').addEventListener('change', async event => {
+  const [file] = event.currentTarget.files;
+  if (!file) return;
+  const imageButton = $('#image-background-button');
+  imageButton.setAttribute('aria-busy', 'true');
+  try {
+    const image = await imageFileData(file);
+    const center = map.getCenter();
+    const replacing = Boolean(imageBackground);
+    const next = replacing ? { ...imageBackground, ...image, name: file.name } : {
+      ...image, name: file.name,
+      center: { latitude: center.lat, longitude: center.lng },
+      widthMetres: IMAGE_WIDTH_RANGE.fallback, rotationDegrees: 0, opacity: IMAGE_OPACITY_RANGE.fallback
+    };
+    setImageBackground(next, { fit: !replacing });
+  } catch (error) {
+    window.alert(error.message);
+  } finally {
+    imageButton.removeAttribute('aria-busy');
+  }
+});
+
+document.querySelectorAll('[data-image-panel]').forEach(button => button.addEventListener('click', () => openImagePanel(button.dataset.imagePanel)));
+
+$('#image-background-rotation').addEventListener('input', event => {
+  if (!imageBackground) return;
+  const rotationDegrees = boundedValue(event.currentTarget.value, { minimum: -180, maximum: 180, fallback: 0 });
+  setImageBackground({ ...imageBackground, rotationDegrees });
+});
+
+$('#image-background-opacity').addEventListener('input', event => {
+  if (!imageBackground) return;
+  const opacity = boundedValue(event.currentTarget.value, IMAGE_OPACITY_RANGE);
+  setImageBackground({ ...imageBackground, opacity }, { transformGeometry: false });
+});
+
+$('#apply-image-scale').addEventListener('click', () => {
+  if (!imageBackground || imageScalePoints.length !== 2) return;
+  const currentDistance = distanceMetres(imageScalePoints[0], imageScalePoints[1]);
+  const knownDistance = boundedValue($('#image-known-distance').value, { minimum: .1, maximum: 100000, fallback: currentDistance });
+  if (!Number.isFinite(currentDistance) || currentDistance <= 0) return;
+  const widthMetres = boundedValue(imageBackground.widthMetres * knownDistance / currentDistance, IMAGE_WIDTH_RANGE);
+  setImageBackground({ ...imageBackground, widthMetres });
+  closeImagePanel();
+});
+
 $('#clear-reflectors').addEventListener('click', async () => {
   const reflectionCount = audibleReflectors().length;
   if (!reflectionCount) return;
@@ -770,7 +1026,7 @@ function addBuildingLayers() {
 
 function setBuildingsLoading(loading) {
   const button = $('#buildings-button');
-  button.disabled = loading;
+  button.disabled = loading || Boolean(imageBackground);
   if (loading) button.setAttribute('aria-busy', 'true');
   else button.removeAttribute('aria-busy');
 }
@@ -787,7 +1043,7 @@ function monitorInitialBuildingLoad() {
     map.off('error', onError);
     setBuildingsLoading(false);
     $('#buildings-button').title = loaded ? 'Hide building data' : 'Building data could not be loaded';
-    $('#echo-field-button').disabled = !loaded;
+    $('#echo-field-button').disabled = Boolean(imageBackground) || !loaded;
     if (loaded) $('#echo-field-button').title = 'Create an automatic echo field around the Listener';
   };
   const onSourceData = event => {
@@ -801,7 +1057,7 @@ function monitorInitialBuildingLoad() {
 }
 
 $('#buildings-button').addEventListener('click', () => {
-  if (!map.loaded()) return;
+  if (!map.loaded() || imageBackground) return;
   const firstLoad = !map.getSource('overture-buildings');
   if (firstLoad) monitorInitialBuildingLoad();
   addBuildingLayers();
@@ -1192,6 +1448,7 @@ function currentWorkspaceProject() {
     globalMaterial: state.globalMaterial,
     settings: state.settings,
     echoFieldEnabled,
+    background: imageBackground,
     mapView: { latitude: center.lat, longitude: center.lng, zoom: map.getZoom() }
   });
 }
@@ -1295,10 +1552,12 @@ $('#open-project-file').addEventListener('change', async event => {
   });
   monitorRenderCache = null;
   automaticReflectors = [];
+  setImageBackground(null, { transformGeometry: false });
   syncWorkspaceControls();
   map.jumpTo({ center: [opened.mapView.longitude, opened.mapView.latitude], zoom: opened.mapView.zoom });
   syncMarkers();
-  if (opened.echoFieldEnabled) setEchoFieldEnabled(true, opened.automaticReflectors);
+  if (opened.background) setImageBackground(opened.background, { transformGeometry: false });
+  if (opened.echoFieldEnabled && !opened.background) setEchoFieldEnabled(true, opened.automaticReflectors);
   else render();
   saveWorkspaceNow();
 });

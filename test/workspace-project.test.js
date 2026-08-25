@@ -22,6 +22,7 @@ test('workspace project round-trips editable state without derived echo data', (
   assert.equal(opened.settings.echoFieldRadiusMetres, 180);
   assert.equal(opened.automaticReflectors[0].buildingEdge.length, 2);
   assert.equal(opened.echoFieldEnabled, true);
+  assert.equal(opened.background, null);
 });
 
 test('export manifests are not accepted as editable workspace projects', () => {
@@ -32,4 +33,18 @@ test('invalid reflector geometry rejects the whole project before state changes'
   const file = createWorkspaceProject(workspace);
   file.geometry.reflectors[0].latitude = 200;
   assert.throws(() => parseWorkspaceProject(JSON.stringify(file)), /position and an id/);
+});
+
+test('embedded image background survives project round-trip', () => {
+  const file = createWorkspaceProject({
+    ...workspace,
+    background: {
+      name: 'plan.png', dataUrl: 'data:image/png;base64,AAAA', pixelWidth: 800, pixelHeight: 600,
+      center: workspace.listener, widthMetres: 75, rotationDegrees: -30, opacity: .5
+    }
+  });
+  const opened = parseWorkspaceProject(JSON.stringify(file));
+  assert.equal(opened.background.name, 'plan.png');
+  assert.equal(opened.background.widthMetres, 75);
+  assert.equal(opened.background.rotationDegrees, -30);
 });

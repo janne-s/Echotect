@@ -24,6 +24,8 @@
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css"
     integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="anonymous">
+  <link rel="stylesheet" href="assets/vendor/fontawesome/css/fontawesome.min.css">
+  <link rel="stylesheet" href="assets/vendor/fontawesome/css/solid.min.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -66,6 +68,34 @@
         <button id="buildings-button" type="button" aria-pressed="false" title="Load building data">Buildings</button>
         <button id="echo-field-button" type="button" aria-pressed="false" title="Load building data first" disabled>Echo field</button>
         <button id="echo-settings-button" class="icon-button" type="button" aria-label="Echo field settings" title="Echo field settings">⚙</button>
+        <button id="image-background-button" type="button" aria-pressed="false">Image</button>
+      </div>
+      <input id="image-background-file" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp">
+      <div id="image-editor" class="image-editor" hidden>
+        <div class="image-editor-buttons" aria-label="Image tools">
+          <button type="button" data-image-panel="scale" aria-label="Calibrate image scale" title="Calibrate image scale"><i class="fa-solid fa-ruler-horizontal" aria-hidden="true"></i></button>
+          <button type="button" data-image-panel="rotation" aria-label="Rotate image" title="Rotate image"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>
+          <button type="button" data-image-panel="opacity" aria-label="Image opacity" title="Image opacity"><i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i></button>
+          <button id="replace-image-background" type="button" aria-label="Choose another image" title="Choose another image"><i class="fa-solid fa-image" aria-hidden="true"></i></button>
+        </div>
+        <div id="image-scale-panel" class="image-editor-panel" data-image-editor-panel="scale" hidden>
+          <strong>Scale</strong>
+          <output id="image-scale-measurement" class="image-scale-measurement" hidden></output>
+          <p id="image-scale-instruction">Select two points with a known distance on the image.</p>
+          <div class="image-distance-control">
+            <label for="image-known-distance">Known distance</label>
+            <span><input id="image-known-distance" type="number" min="0.1" max="100000" step="0.1" value="10"> m</span>
+          </div>
+          <button id="apply-image-scale" class="primary" type="button" disabled>Set scale</button>
+        </div>
+        <div class="image-editor-panel" data-image-editor-panel="rotation" hidden>
+          <label for="image-background-rotation">Rotation <output id="image-background-rotation-value">0°</output></label>
+          <input id="image-background-rotation" type="range" min="-180" max="180" step="1">
+        </div>
+        <div class="image-editor-panel" data-image-editor-panel="opacity" hidden>
+          <label for="image-background-opacity">Opacity <output id="image-background-opacity-value">75%</output></label>
+          <input id="image-background-opacity" type="range" min="0.1" max="1" step="0.05">
+        </div>
       </div>
     </section>
 

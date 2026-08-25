@@ -26,6 +26,10 @@ Use **Save** to store the editable project as a separate file and **Open** to
 restore its map geometry, reflection field, materials, and listening settings.
 Audio and Max for Live exports remain available through **Export**.
 
+Use **Image** to replace the map with a PNG, JPEG, or WebP sketch. Calibrate its
+scale from a known distance in the image, rotate it as needed, and place Source,
+Listener, and Point Reflectors on top. The image is included in the saved project.
+
 ## Echo field settings
 
 - **Point reflections** — Chooses between a longer, more diffuse point-reflection

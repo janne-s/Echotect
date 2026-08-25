@@ -60,6 +60,25 @@ input[type="checkbox"]:focus-visible, input[type="range"]:focus-visible { outlin
 .map-tools button.active, .map-tools button[aria-pressed="true"] { color: #111; background: var(--accent); border-color: var(--accent); }
 .map-tools button.active .tool-symbol { border-color: #111; }
 .map-tools button.active .symbol-source { background: #111; }
+.maplibregl-ctrl-bottom-left .maplibregl-ctrl-group { display: flex; }
+.maplibregl-ctrl-bottom-left .maplibregl-ctrl-group button + button { border-top: 0; border-left: 1px solid #ddd; }
+.image-editor { position: absolute; z-index: 3; left: 50%; bottom: 10px; display: flex; align-items: flex-end; transform: translateX(-50%); }
+.image-editor[hidden], .image-editor-panel[hidden] { display: none; }
+.image-editor-buttons { display: flex; overflow: hidden; border: 1px solid var(--line); border-radius: 3px; background: #171717ee; }
+.image-editor-buttons button {
+  display: grid; width: 30px; height: 30px; place-items: center; border: 0; border-right: 1px solid var(--line); border-radius: 0; padding: 0; background: transparent;
+}
+.image-editor-buttons button:last-child { border-right: 0; }
+.image-editor-buttons button:hover, .image-editor-buttons button[aria-pressed="true"] { color: var(--accent); }
+.image-editor-panel { position: absolute; bottom: 38px; left: 50%; width: min(290px, calc(100vw - 24px)); padding: 11px; border: 1px solid var(--line); border-radius: 3px; background: #171717f5; box-shadow: 0 3px 12px #0008; transform: translateX(-50%); }
+.image-editor-panel > label, .image-distance-control { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); }
+.image-editor-panel output { color: var(--ink); font: .72rem/1.3 ui-monospace, monospace; }
+.image-editor-panel .image-scale-measurement { display: block; min-height: 1.3em; margin-top: 6px; color: var(--ink); }
+.image-editor-panel .image-scale-measurement[hidden] { visibility: hidden; }
+.image-editor-panel input[type="range"] { width: 100%; margin: 10px 0 2px; accent-color: var(--accent); }
+.image-editor-panel p { margin: 3px 0 10px; color: var(--muted); line-height: 1.4; }
+.image-distance-control input { width: 82px; border: 1px solid var(--line); border-radius: 2px; padding: 5px 7px; background: #222; color: var(--ink); }
+.image-editor-panel .primary { margin-top: 10px; }
 .side-panel { overflow-y: auto; border-left: 1px solid var(--line); background: var(--panel); }
 .side-panel section { padding: 11px; }
 .side-panel section + section { padding-top: 8px; }
