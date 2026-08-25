@@ -35,6 +35,7 @@ const MAXIMUM_BACKGROUND_IMAGE_BYTES = 20 * 1024 * 1024;
 const IMAGE_SOURCE_ID = 'echotect-background-image';
 const IMAGE_LAYER_ID = 'echotect-background-image';
 const IMAGE_SCALE_SOURCE_ID = 'echotect-image-scale';
+const OSM_TILE_URLS = ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'];
 
 const validEdge = edge => Array.isArray(edge) && edge.length === 2
   && edge.every(point => Array.isArray(point) && point.length >= 2 && point.every(Number.isFinite));
@@ -137,7 +138,7 @@ const map = new maplibregl.Map({
   zoom: initialMapView.zoom,
   style: {
     version: 8,
-    sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' } },
+    sources: { osm: { type: 'raster', tiles: OSM_TILE_URLS, tileSize: 256, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' } },
     layers: [{
       id: 'osm',
       type: 'raster',
@@ -356,10 +357,14 @@ function removeImageLayer() {
 }
 
 function syncImageLayer() {
-  if (!map.isStyleLoaded()) return;
+  // A map jump temporarily makes isStyleLoaded() false while tiles refresh,
+  // even though the style is ready for source and layer changes.
+  if (!map.getStyle()) return;
   if (map.getLayer('osm')) map.setLayoutProperty('osm', 'visibility', imageBackground ? 'none' : 'visible');
   if (!imageBackground) {
     removeImageLayer();
+    map.getSource('osm')?.setTiles(OSM_TILE_URLS);
+    map.triggerRepaint();
     return;
   }
   const source = map.getSource(IMAGE_SOURCE_ID);
