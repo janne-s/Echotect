@@ -14,25 +14,106 @@ export const DEFAULT_AIR_MODE = 'standard';
  * and the project manifest all derive from this table.
  */
 export const ECHO_FIELD_SETTINGS = Object.freeze({
-  durationSeconds: { minimum: 1, maximum: 60, step: 1, fallback: 10 },
-  maxSurfaces: { minimum: 8, maximum: 512, step: 1, fallback: 48, integer: true },
-  pointPathLimit: { minimum: 32, maximum: 4096, step: 32, fallback: 512, integer: true },
-  pointMaxBounces: { minimum: 1, maximum: 32, step: 1, fallback: 6, integer: true },
-  pointPersistence: { minimum: 0, maximum: .95, step: .05, fallback: .65 },
-  geometricSpreadingAmount: { minimum: 0, maximum: 1, step: .05, fallback: 1 },
-  airTemperatureCelsius: { minimum: -20, maximum: 50, step: 1, fallback: 20 },
-  airHumidityPercent: { minimum: 10, maximum: 100, step: 1, fallback: 50 },
-  airPressureKpa: { minimum: 80, maximum: 110, step: .1, fallback: 101.3 },
-  airAbsorptionAmount: { minimum: 0, maximum: 2, step: .05, fallback: 1 },
-  materialColorationAmount: { minimum: 0, maximum: 2, step: .05, fallback: 1 },
-  lateWalks: { minimum: 256, maximum: 65536, step: 256, fallback: 8192, integer: true },
-  maxBounces: { minimum: 2, maximum: 128, step: 1, fallback: 32, integer: true },
-  cutoffDb: { minimum: -120, maximum: -30, step: 1, fallback: AUDIBILITY_THRESHOLD_DB },
-  tailPersistence: { minimum: .1, maximum: 1, step: .05, fallback: .6 },
-  fdnTailSeconds: { minimum: 1, maximum: 60, step: .5, fallback: 8 },
-  fdnDensity: { minimum: .1, maximum: 1, step: .05, fallback: .7 },
-  fdnDamping: { minimum: .1, maximum: 1, step: .05, fallback: .55 },
-  geometryInfluence: { minimum: 0, maximum: 1, step: .05, fallback: .7 }
+  durationSeconds: {
+    minimum: 1,
+    maximum: 60,
+    step: 1,
+    fallback: 10 },
+  maxSurfaces: {
+    minimum: 8,
+    maximum: 512,
+    step: 1,
+    fallback: 48,
+    integer: true },
+  pointPathLimit: {
+    minimum: 32,
+    maximum: 4096,
+    step: 32,
+    fallback: 512,
+    integer: true },
+  pointMaxBounces: {
+    minimum: 1,
+    maximum: 32,
+    step: 1,
+    fallback: 6,
+    integer: true },
+  pointPersistence: {
+    minimum: 0,
+    maximum: .95,
+    step: .05,
+    fallback: .65 },
+  geometricSpreadingAmount: {
+    minimum: 0,
+    maximum: 1,
+    step: .05,
+    fallback: 1 },
+  airTemperatureCelsius: {
+    minimum: -20,
+    maximum: 50,
+    step: 1,
+    fallback: 20 },
+  airHumidityPercent: {
+    minimum: 10,
+    maximum: 100,
+    step: 1,
+    fallback: 50 },
+  airPressureKpa: {
+    minimum: 80,
+    maximum: 110,
+    step: .1,
+    fallback: 101.3 },
+  airAbsorptionAmount: {
+    minimum: 0,
+    maximum: 2,
+    step: .05,
+    fallback: 1 },
+  materialColorationAmount: {
+    minimum: 0,
+    maximum: 2,
+    step: .05,
+    fallback: 1 },
+  lateWalks: {
+    minimum: 256,
+    maximum: 65536,
+    step: 256,
+    fallback: 8192,
+    integer: true },
+  maxBounces: {
+    minimum: 2,
+    maximum: 128,
+    step: 1,
+    fallback: 32,
+    integer: true },
+  cutoffDb: {
+    minimum: -120,
+    maximum: -30,
+    step: 1,
+    fallback: AUDIBILITY_THRESHOLD_DB },
+  tailPersistence: {
+    minimum: .1,
+    maximum: 1,
+    step: .05,
+    fallback: .6 },
+  fdnTailSeconds: {
+    minimum: 1,
+    maximum: 60,
+    step: .5,
+    fallback: 8 },
+  fdnDensity: {
+    minimum: .1,
+    maximum: 1,
+    step: .05,
+    fallback: .7 },
+  fdnDamping: {
+    minimum: .1,
+    maximum: 1,
+    step: .05,
+    fallback: .55 },
+  geometryInfluence: {
+    minimum: 0,
+    maximum: 1,
+    step: .05,
+    fallback: .7 }
 });
 
 /** Accepts stored JSON or raw input values and always returns a complete, in-range setting set. */

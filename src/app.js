@@ -1135,8 +1135,6 @@ function setEchoFieldEnabled(enabled, restoredReflectors = null) {
 
 $('#echo-field-button').addEventListener('click', () => setEchoFieldEnabled(!echoFieldEnabled));
 
-map.on('moveend', scheduleEchoFieldUpdate);
-
 $('#link-points').addEventListener('click', () => {
   releaseSavedEchoField();
   state.pointsLinked = !state.pointsLinked;
