@@ -39,6 +39,9 @@ const OSM_TILE_URLS = ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'];
 const MAXIMUM_REFLECTION_PULSES = 4800;
 const MAXIMUM_VISUALIZED_PATHS = 800;
 const MAXIMUM_LATE_REFLECTION_PULSES = 4000;
+const AUDIO_RECOVERY_OPERATION_TIMEOUT_MS = 1200;
+const AUDIO_RECOVERY_CLOCK_TEST_MS = 250;
+const AUDIO_RECOVERY_MINIMUM_CLOCK_ADVANCE_SECONDS = .05;
 
 const validEdge = edge => Array.isArray(edge) && edge.length === 2
   && edge.every(point => Array.isArray(point) && point.length >= 2 && point.every(Number.isFinite));
@@ -1274,6 +1277,57 @@ function getAudioContext() {
   return audioContext;
 }
 
+const waitMilliseconds = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+function withTimeout(promise, milliseconds, operation) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`${operation} timed out.`)), milliseconds);
+    })
+  ]).finally(() => clearTimeout(timer));
+}
+
+async function audioClockAdvances(context) {
+  if (context.state === 'closed') return false;
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  gain.gain.value = 0;
+  oscillator.connect(gain).connect(context.destination);
+  const startedAt = context.currentTime;
+  oscillator.start();
+  try {
+    await waitMilliseconds(AUDIO_RECOVERY_CLOCK_TEST_MS);
+    return context.state === 'running'
+      && context.currentTime - startedAt >= AUDIO_RECOVERY_MINIMUM_CLOCK_ADVANCE_SECONDS;
+  } finally {
+    try { oscillator.stop(); } catch { /* A failed context may already have discarded the source. */ }
+    oscillator.disconnect();
+    gain.disconnect();
+  }
+}
+
+async function cycleAudioContext(context) {
+  if (context.state === 'closed') return false;
+  try {
+    await withTimeout(context.suspend(), AUDIO_RECOVERY_OPERATION_TIMEOUT_MS, 'Audio suspend');
+    await withTimeout(context.resume(), AUDIO_RECOVERY_OPERATION_TIMEOUT_MS, 'Audio resume');
+    return await audioClockAdvances(context);
+  } catch {
+    return false;
+  }
+}
+
+async function closeAudioContext(context) {
+  if (!context || context.state === 'closed') return;
+  try {
+    await withTimeout(context.close(), AUDIO_RECOVERY_OPERATION_TIMEOUT_MS, 'Audio close');
+  } catch {
+    // A stuck WebKit audio process may never settle close(); recovery must still continue.
+  }
+}
+
 async function loadDefaultHandclap(context) {
   if (!defaultHandclapBuffer) {
     const response = await fetch(new URL('../assets/handclap.wav', import.meta.url));
@@ -1656,6 +1710,7 @@ $('#play-button').addEventListener('click', async () => {
     const context = getAudioContext();
     await context.resume();
     const data = await monitorPlaybackData(context, rendering);
+    if (revision !== playbackRevision) return;
     if (rendering) {
       const channels = await renderedMonitorChannels(data);
       if (revision === playbackRevision) renderedPlayback = {
@@ -1891,16 +1946,46 @@ $('#export-form').addEventListener('submit', async event => {
 
 $('#reset-audio').addEventListener('click', async event => {
   const button = event.currentTarget;
-  const context = audioContext;
+  const previousContext = audioContext;
   stopPlayback();
+  audioSourceRevision += 1;
+  monitorRenderCache = null;
+  defaultHandclapBuffer = null;
+  invalidateRenderedPlayback();
   audioContext = null;
-  if (!context || context.state === 'closed') return;
   button.disabled = true;
   button.setAttribute('aria-busy', 'true');
+  button.textContent = 'Recovering…';
+
+  let replacementContext = null;
+  let resumeReplacement = null;
+  const closePrevious = closeAudioContext(previousContext);
   try {
-    await context.close();
+    // Create and resume synchronously from the click so Safari retains the user activation.
+    replacementContext = new AudioContext();
+    audioContext = replacementContext;
+    resumeReplacement = replacementContext.resume();
+
+    await closePrevious;
+    try {
+      await withTimeout(resumeReplacement, AUDIO_RECOVERY_OPERATION_TIMEOUT_MS, 'Audio resume');
+    } catch {
+      // The state and clock test below is authoritative; Safari promises can stall independently.
+    }
+    let recovered = await audioClockAdvances(replacementContext);
+    if (!recovered) recovered = await cycleAudioContext(replacementContext);
+    if (!recovered) throw new Error(`Audio clock did not recover (state: ${replacementContext.state}).`);
+  } catch (error) {
+    console.warn('Audio recovery failed.', error, {
+      previousState: previousContext?.state,
+      replacementState: replacementContext?.state
+    });
+    if (audioContext === replacementContext) audioContext = null;
+    await closeAudioContext(replacementContext);
+    window.alert('The browser audio engine could not be restarted. Open Echotect in a new window and try again.');
   } finally {
     button.disabled = false;
     button.removeAttribute('aria-busy');
+    button.textContent = 'Recover audio';
   }
 });
