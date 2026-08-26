@@ -179,7 +179,22 @@ const map = new maplibregl.Map({
     }]
   }
 });
+const mapContainer = map.getContainer();
+mapContainer.classList.add('map-attribution-initializing');
 map.addControl(new maplibregl.AttributionControl({ compact: true }));
+
+function collapseInitialMapAttribution() {
+  const attributionDetails = mapContainer.querySelector('details.maplibregl-ctrl-attrib');
+  attributionDetails?.classList.remove('maplibregl-compact-show');
+  attributionDetails?.removeAttribute('open');
+}
+
+// MapLibre 5.24 expands compact attribution again when asynchronous source metadata arrives.
+// Collapse after that initialization has completed; CSS prevents an expanded-state flash meanwhile.
+map.once('load', () => {
+  collapseInitialMapAttribution();
+  mapContainer.classList.remove('map-attribution-initializing');
+});
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }));
 
