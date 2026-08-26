@@ -160,6 +160,7 @@ const initialMapView = storedMapView();
 
 const map = new maplibregl.Map({
   container: 'map',
+  attributionControl: false,
   center: [initialMapView.longitude, initialMapView.latitude],
   zoom: initialMapView.zoom,
   style: {
@@ -178,6 +179,7 @@ const map = new maplibregl.Map({
     }]
   }
 });
+map.addControl(new maplibregl.AttributionControl({ compact: true }));
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }));
 

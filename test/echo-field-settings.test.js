@@ -15,6 +15,12 @@ test('missing, malformed, and unusable values fall back to the defaults', () => 
   assert.deepEqual(normalizeEchoFieldSettings(undefined), DEFAULT_ECHO_FIELD_SETTINGS);
   assert.deepEqual(normalizeEchoFieldSettings({ durationSeconds: null, cutoffDb: 'x', lateMode: 'reverb' }), DEFAULT_ECHO_FIELD_SETTINGS);
   assert.equal(DEFAULT_ECHO_FIELD_SETTINGS.lateFieldLevelDb, 2);
+  assert.equal(DEFAULT_ECHO_FIELD_SETTINGS.buildingOcclusion, true);
+});
+
+test('building occlusion defaults on while preserving an explicit opt-out', () => {
+  assert.equal(normalizeEchoFieldSettings({}).buildingOcclusion, true);
+  assert.equal(normalizeEchoFieldSettings({ buildingOcclusion: false }).buildingOcclusion, false);
 });
 
 test('slider strings and out-of-range numbers are bounded to the declared range', () => {
