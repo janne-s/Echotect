@@ -10,6 +10,7 @@ import { addStereo, renderExportAudio, resampleToMono } from './offline-export.j
 import { createProjectManifest, validateProjectManifest } from './project-manifest.js';
 import { boundedValue } from './range.js';
 import { hrtfPosition } from './spatial.js';
+import { createRectangleVertices, insertVertex, moveEdgeVertices, pointInStructureSpace, removeVertex, structureRing, structureVertices, structureWalls, validStructure } from './structures.js';
 import { createWorkspaceProject, parseWorkspaceProject, REFLECTION_LEVEL_RANGE } from './workspace-project.js';
 import { encodeFloat32Wav, wavByteLength, WAV_SAMPLE_RATE } from './wav.js';
 import { zipStore } from './zip.js';
@@ -35,6 +36,9 @@ const MAXIMUM_BACKGROUND_IMAGE_BYTES = 20 * 1024 * 1024;
 const IMAGE_SOURCE_ID = 'echotect-background-image';
 const IMAGE_LAYER_ID = 'echotect-background-image';
 const IMAGE_SCALE_SOURCE_ID = 'echotect-image-scale';
+const STRUCTURE_VERTEX_HIT_RADIUS_PIXELS = 12;
+const DEFAULT_STRUCTURE_SIZE_METRES = 20;
+const MINIMUM_INITIAL_STRUCTURE_SIZE_METRES = .5;
 const OSM_TILE_URLS = ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'];
 const MAXIMUM_REFLECTION_PULSES = 4800;
 const MAXIMUM_VISUALIZED_PATHS = 800;
@@ -64,6 +68,7 @@ function defaultWorkspace() {
     source: { latitude: 60.16955, longitude: 24.9369 },
     listener: { latitude: 60.1707, longitude: 24.9410 },
     reflectors: [{ id: crypto.randomUUID(), latitude: 60.1721, longitude: 24.9384, levelDb: REFLECTION_LEVEL_RANGE.fallback, material: 'inherit' }],
+    structures: [],
     pointsLinked: false,
     globalReflectionLevelDb: REFLECTION_LEVEL_RANGE.fallback,
     globalMaterial: 'generic',
@@ -97,6 +102,7 @@ function storedWorkspace() {
         ...(typeof reflector.buildingId === 'string' || typeof reflector.buildingId === 'number' ? { buildingId: reflector.buildingId } : {}),
         ...(typeof reflector.facadeMaterial === 'string' ? { facadeMaterial: reflector.facadeMaterial } : {})
       })),
+      structures: Array.isArray(saved.structures) ? saved.structures.filter(validStructure) : [],
       pointsLinked: Boolean(saved.pointsLinked),
       globalReflectionLevelDb: boundedValue(saved.globalReflectionLevelDb, REFLECTION_LEVEL_RANGE),
       globalMaterial: materialValues.has(saved.globalMaterial) && saved.globalMaterial !== 'inherit' ? saved.globalMaterial : 'generic',
@@ -141,6 +147,12 @@ let activeImagePanel = null;
 let imageScalePoints = [];
 let imageScaleCursor = null;
 let renderedImageDataUrl = null;
+let selectedStructureId = null;
+let structurePanelOpen = false;
+const structureMarkers = [];
+let structureAreaDrag = null;
+let structureEdgeDrag = null;
+let suppressStructureEdgeClick = false;
 
 const protocol = new pmtiles.Protocol();
 maplibregl.addProtocol('pmtiles', protocol.tile);
@@ -210,6 +222,7 @@ function saveWorkspace() {
       project: state.project,
       listener: state.listener,
       reflectors: state.reflectors,
+      structures: state.structures,
       pointsLinked: state.pointsLinked,
       globalReflectionLevelDb: state.globalReflectionLevelDb,
       globalMaterial: state.globalMaterial,
@@ -282,6 +295,124 @@ function syncMarkers() {
 }
 
 const audibleReflectors = () => [...state.reflectors, ...automaticReflectors];
+const hasEchoFieldWalls = () => state.buildingsVisible || state.structures.length > 0;
+
+const selectedStructure = () => state.structures.find(structure => structure.id === selectedStructureId) ?? null;
+
+function structuresGeoJson() {
+  return {
+    type: 'FeatureCollection',
+    features: state.structures.map(structure => ({
+      type: 'Feature',
+      properties: { id: structure.id, selected: structure.id === selectedStructureId },
+      geometry: { type: 'Polygon', coordinates: [structureRing(structure)] }
+    }))
+  };
+}
+
+function structureEdgesGeoJson() {
+  return {
+    type: 'FeatureCollection',
+    features: state.structures.flatMap(structure => {
+      const ring = structureRing(structure);
+      return ring.slice(1).map((point, index) => ({
+        type: 'Feature', properties: { id: structure.id, edgeIndex: index },
+        geometry: { type: 'LineString', coordinates: [ring[index], point] }
+      }));
+    })
+  };
+}
+
+function isNearStructureVertex(screenPoint, structure) {
+  const radiusSquared = STRUCTURE_VERTEX_HIT_RADIUS_PIXELS ** 2;
+  return structureVertices(structure).some(vertex => {
+    const projected = map.project([vertex.longitude, vertex.latitude]);
+    return (projected.x - screenPoint.x) ** 2 + (projected.y - screenPoint.y) ** 2 <= radiusSquared;
+  });
+}
+
+function clearStructureMarkers() {
+  structureMarkers.splice(0).forEach(marker => marker.remove());
+}
+
+function positionStructureMarkers(structure, skippedMarker = null) {
+  const points = structureVertices(structure);
+  if (structureMarkers.length !== points.length) return;
+  structureMarkers.forEach((marker, index) => {
+    if (marker !== skippedMarker) marker.setLngLat([points[index].longitude, points[index].latitude]);
+  });
+}
+
+function structureHandle(className, label) {
+  const element = document.createElement('div');
+  element.className = `structure-handle ${className}`;
+  element.setAttribute('aria-label', label);
+  element.title = label;
+  return element;
+}
+
+function syncStructurePanel() {
+  const structure = selectedStructure();
+  $('#image-editor').hidden = false;
+  $('#structure-panel').hidden = !structurePanelOpen;
+  $('#structure-menu-button').setAttribute('aria-pressed', String(structurePanelOpen));
+  $('#delete-structure').disabled = !structure;
+  if (!structure) return;
+  $('#structure-material').value = structure.material;
+}
+
+function commitStructureGeometry() {
+  releaseSavedEchoField();
+  map.getSource('structures')?.setData(structuresGeoJson());
+  map.getSource('structure-edges')?.setData(structureEdgesGeoJson());
+  syncStructurePanel();
+  scheduleEchoFieldUpdate();
+  scheduleSave();
+}
+
+function syncStructureGeometry() {
+  map.getSource('structures')?.setData(structuresGeoJson());
+  clearStructureMarkers();
+  const structure = selectedStructure();
+  syncStructurePanel();
+  if (!structure) return;
+  structureVertices(structure).forEach((vertex, index) => {
+    const element = structureHandle('structure-handle-corner', `Move polygon vertex ${index + 1}`);
+    const marker = new maplibregl.Marker({ element, draggable: true })
+      .setLngLat([vertex.longitude, vertex.latitude]).addTo(map);
+    marker.on('drag', () => {
+      structure.verticesMetres[index] = pointInStructureSpace(structure, pointFromLngLat(marker.getLngLat()));
+      positionStructureMarkers(structure, marker);
+      commitStructureGeometry();
+    });
+    marker.on('dragend', () => { syncStructureGeometry(); commitStructureGeometry(); });
+    element.addEventListener('dblclick', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      structure.verticesMetres = removeVertex(structure.verticesMetres, index);
+      syncStructureGeometry();
+      commitStructureGeometry();
+    });
+    structureMarkers.push(marker);
+  });
+}
+
+function selectStructure(id) {
+  selectedStructureId = state.structures.some(structure => structure.id === id) ? id : null;
+  structurePanelOpen = Boolean(selectedStructureId);
+  syncStructureGeometry();
+}
+
+function deleteSelectedStructure() {
+  if (!selectedStructure()) return;
+  state.structures = state.structures.filter(structure => structure.id !== selectedStructureId);
+  selectedStructureId = null;
+  structurePanelOpen = true;
+  if (!hasEchoFieldWalls() && echoFieldEnabled) setEchoFieldEnabled(false);
+  $('#echo-field-button').disabled = !hasEchoFieldWalls();
+  syncStructureGeometry();
+  commitStructureGeometry();
+}
 
 function routeGeoJson() {
   return {
@@ -364,6 +495,8 @@ function syncRoutes() {
   if (directSource) directSource.setData(directRouteGeoJson());
   const edgeSource = map.getSource('building-reflector-edges');
   if (edgeSource) edgeSource.setData(buildingEdgesGeoJson());
+  map.getSource('structures')?.setData(structuresGeoJson());
+  map.getSource('structure-edges')?.setData(structureEdgesGeoJson());
 }
 
 function removeImageLayer() {
@@ -396,7 +529,7 @@ function syncImageLayer() {
     type: 'raster',
     source: IMAGE_SOURCE_ID,
     paint: { 'raster-opacity': imageBackground.opacity, 'raster-fade-duration': 0 }
-  }, map.getLayer('direct-route') ? 'direct-route' : undefined);
+  }, map.getLayer('structures-fill') ? 'structures-fill' : map.getLayer('direct-route') ? 'direct-route' : undefined);
   renderedImageDataUrl = imageBackground.dataUrl;
 }
 
@@ -405,7 +538,8 @@ function syncImageModeControls() {
   const imageButton = $('#image-background-button');
   imageButton.setAttribute('aria-pressed', String(active));
   imageButton.textContent = 'Image';
-  $('#image-editor').hidden = !active;
+  $('#image-editor').hidden = false;
+  document.querySelectorAll('[data-image-only]').forEach(button => { button.hidden = !active; });
   if (active) {
     $('#image-background-rotation').value = imageBackground.rotationDegrees;
     $('#image-background-opacity').value = imageBackground.opacity;
@@ -417,7 +551,7 @@ function syncImageModeControls() {
   buildingsButton.disabled = active;
   buildingsButton.setAttribute('aria-pressed', String(active ? false : state.buildingsVisible));
   buildingsButton.title = active ? 'Building data is unavailable with an image background' : state.buildingsVisible ? 'Hide building data' : 'Load building data';
-  $('#echo-field-button').disabled = active || !state.buildingsVisible;
+  $('#echo-field-button').disabled = !state.buildingsVisible && state.structures.length === 0;
 }
 
 function imageScaleGeoJson() {
@@ -466,6 +600,7 @@ function closeImagePanel() {
 
 function openImagePanel(name) {
   const next = activeImagePanel === name ? null : name;
+  selectStructure(null);
   closeImagePanel();
   activeImagePanel = next;
   if (next) {
@@ -484,6 +619,13 @@ function transformPlacedGeometry(previous, next) {
   state.reflectors.forEach(reflector => {
     Object.assign(reflector, transformImagePoint(reflector, previous, next));
     if (reflector.buildingEdge) reflector.buildingEdge = transformImageEdge(reflector.buildingEdge, previous, next);
+  });
+  const scale = next.widthMetres / previous.widthMetres;
+  const rotationChange = next.rotationDegrees - previous.rotationDegrees;
+  state.structures.forEach(structure => {
+    structure.center = transformImagePoint(structure.center, previous, next);
+    structure.verticesMetres.forEach(point => { point.x *= scale; point.y *= scale; });
+    structure.rotationDegrees = ((structure.rotationDegrees + rotationChange + 180) % 360 + 360) % 360 - 180;
   });
 }
 
@@ -504,6 +646,7 @@ function setImageBackground(next, { fit = false, transformGeometry = true } = {}
   syncImageLayer();
   syncImageModeControls();
   syncMarkers();
+  syncStructureGeometry();
   render();
   monitorRenderCache = null;
   scheduleSave();
@@ -618,6 +761,54 @@ function render() {
 }
 
 map.on('load', () => {
+  map.addSource('structures', { type: 'geojson', data: structuresGeoJson() });
+  map.addSource('structure-edges', { type: 'geojson', data: structureEdgesGeoJson() });
+  map.addLayer({ id: 'structures-fill', type: 'fill', source: 'structures', paint: { 'fill-color': ACCENT_COLOR, 'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], .22, .1] } });
+  map.addLayer({ id: 'structures-line', type: 'line', source: 'structures', paint: { 'line-color': ACCENT_COLOR, 'line-width': ['case', ['boolean', ['get', 'selected'], false], 4, 2], 'line-opacity': .95 } });
+  map.addLayer({ id: 'structure-edge-hit', type: 'line', source: 'structure-edges', paint: { 'line-color': ACCENT_COLOR, 'line-width': 14, 'line-opacity': 0 } });
+  map.on('mousedown', 'structure-edge-hit', event => {
+    const feature = event.features?.[0];
+    const structure = state.structures.find(item => item.id === feature?.properties?.id);
+    const edgeIndex = Number(feature?.properties?.edgeIndex);
+    if (!structure || !Number.isInteger(edgeIndex) || isNearStructureVertex(event.point, structure)) return;
+    event.preventDefault();
+    selectStructure(structure.id);
+    structureEdgeDrag = {
+      structure, edgeIndex, start: pointInStructureSpace(structure, pointFromLngLat(event.lngLat)),
+      vertices: structure.verticesMetres.map(point => ({ ...point })), moved: false,
+      restoreDragPan: map.dragPan.isEnabled()
+    };
+    map.dragPan.disable();
+    map.getCanvas().style.cursor = 'grabbing';
+  });
+  map.on('click', 'structure-edge-hit', event => {
+    if (suppressStructureEdgeClick) return;
+    const feature = event.features?.[0];
+    const structure = state.structures.find(item => item.id === feature?.properties?.id);
+    const edgeIndex = Number(feature?.properties?.edgeIndex);
+    if (!structure || !Number.isInteger(edgeIndex) || isNearStructureVertex(event.point, structure)) return;
+    event.preventDefault();
+    selectStructure(structure.id);
+    structure.verticesMetres = insertVertex(structure.verticesMetres, edgeIndex, pointInStructureSpace(structure, pointFromLngLat(event.lngLat)));
+    syncStructureGeometry();
+    commitStructureGeometry();
+  });
+  map.on('mousedown', 'structures-fill', event => {
+    const id = event.features?.[0]?.properties?.id;
+    const structure = state.structures.find(item => item.id === id);
+    if (!structure || isNearStructureVertex(event.point, structure)) return;
+    if (map.queryRenderedFeatures(event.point, { layers: ['structure-edge-hit'] }).length) return;
+    event.preventDefault();
+    selectStructure(id);
+    structureAreaDrag = {
+      structure,
+      start: pointFromLngLat(event.lngLat),
+      center: { ...structure.center },
+      restoreDragPan: map.dragPan.isEnabled()
+    };
+    map.dragPan.disable();
+    map.getCanvas().style.cursor = 'grabbing';
+  });
   map.addSource('direct-route', { type: 'geojson', data: directRouteGeoJson() });
   map.addLayer({ id: 'direct-route', type: 'line', source: 'direct-route', paint: { 'line-color': ACCENT_COLOR, 'line-width': 3, 'line-opacity': .95, 'line-dasharray': [2, 2] } });
   map.addSource('routes', { type: 'geojson', data: routeGeoJson() });
@@ -636,7 +827,7 @@ map.on('load', () => {
   map.addLayer({ id: `${IMAGE_SCALE_SOURCE_ID}-points`, type: 'circle', source: IMAGE_SCALE_SOURCE_ID, filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 6, 'circle-color': ACCENT_COLOR, 'circle-stroke-width': 3, 'circle-stroke-color': '#111' } });
   syncImageLayer();
   syncImageModeControls();
-  syncMarkers(); render();
+  syncMarkers(); syncStructureGeometry(); render();
 });
 
 function nearestBuildingWall(feature, clickPoint) {
@@ -668,11 +859,11 @@ function nearestBuildingWall(feature, clickPoint) {
 }
 
 function rebuildEchoField() {
-  if (!echoFieldEnabled || !map.getSource('overture-buildings')) return;
+  if (!echoFieldEnabled) return;
   echoFieldUsesSavedReflectors = false;
-  const walls = [];
+  const walls = state.structures.flatMap(structureWalls);
   const seenEdges = new Set();
-  map.querySourceFeatures('overture-buildings', { sourceLayer: 'buildings' }).forEach(feature => {
+  if (state.buildingsVisible && map.getSource('overture-buildings')) map.querySourceFeatures('overture-buildings', { sourceLayer: 'buildings' }).forEach(feature => {
     const polygons = feature.geometry.type === 'Polygon' ? [feature.geometry.coordinates] : feature.geometry.type === 'MultiPolygon' ? feature.geometry.coordinates : [];
     const facadeMaterial = feature.properties.facade_material
       ?? feature.properties['facade:material']
@@ -700,7 +891,7 @@ function rebuildEchoField() {
       ...reflection.point,
       buildingEdge: wall.edge,
       facadeMaterial: wall.facadeMaterial,
-      material: normalizeFacadeMaterial(wall.facadeMaterial) ?? 'inherit',
+      material: wall.structureId ? state.structures.find(structure => structure.id === wall.structureId)?.material ?? 'inherit' : normalizeFacadeMaterial(wall.facadeMaterial) ?? 'inherit',
       levelDb: state.globalReflectionLevelDb + (reflection.kind === 'diffuse' ? -9 : 0),
       reflectionKind: reflection.kind,
       pathMetres,
@@ -731,6 +922,28 @@ function scheduleEchoFieldUpdate() {
 }
 
 map.on('mousemove', event => {
+  if (structureEdgeDrag) {
+    const point = pointInStructureSpace(structureEdgeDrag.structure, pointFromLngLat(event.lngLat));
+    const delta = { x: point.x - structureEdgeDrag.start.x, y: point.y - structureEdgeDrag.start.y };
+    if (Math.hypot(delta.x, delta.y) > .02) structureEdgeDrag.moved = true;
+    const { edgeIndex, vertices, structure } = structureEdgeDrag;
+    structure.verticesMetres = moveEdgeVertices(vertices, edgeIndex, delta);
+    positionStructureMarkers(structure);
+    commitStructureGeometry();
+    map.getCanvas().style.cursor = 'grabbing';
+    return;
+  }
+  if (structureAreaDrag) {
+    const point = pointFromLngLat(event.lngLat);
+    structureAreaDrag.structure.center = {
+      latitude: structureAreaDrag.center.latitude + point.latitude - structureAreaDrag.start.latitude,
+      longitude: structureAreaDrag.center.longitude + point.longitude - structureAreaDrag.start.longitude
+    };
+    positionStructureMarkers(structureAreaDrag.structure);
+    commitStructureGeometry();
+    map.getCanvas().style.cursor = 'grabbing';
+    return;
+  }
   if (activeImagePanel === 'scale' && imageBackground) {
     imageScaleCursor = pointFromLngLat(event.lngLat);
     syncImageScaleGuide();
@@ -748,6 +961,25 @@ map.on('mousemove', event => {
   map.getCanvas().style.cursor = wall ? 'crosshair' : '';
 });
 
+function finishStructureAreaDrag() {
+  const drag = structureEdgeDrag ?? structureAreaDrag;
+  if (!drag) return;
+  const restoreDragPan = drag.restoreDragPan;
+  if (structureEdgeDrag?.moved) {
+    suppressStructureEdgeClick = true;
+    setTimeout(() => { suppressStructureEdgeClick = false; }, 0);
+  }
+  structureEdgeDrag = null;
+  structureAreaDrag = null;
+  if (restoreDragPan) map.dragPan.enable();
+  map.getCanvas().style.cursor = '';
+  syncStructureGeometry();
+  commitStructureGeometry();
+}
+
+map.on('mouseup', finishStructureAreaDrag);
+document.addEventListener('mouseup', finishStructureAreaDrag);
+
 map.on('mouseout', clearBuildingHover);
 
 map.on('click', event => {
@@ -758,6 +990,10 @@ map.on('click', event => {
     syncImageScaleGuide();
     return;
   }
+  if (event.defaultPrevented) return;
+  const structureFeature = map.queryRenderedFeatures(event.point, { layers: ['structures-fill'] })[0];
+  if (structureFeature) { selectStructure(structureFeature.properties.id); return; }
+  if (!activeTool) selectStructure(null);
   if (!activeTool) return;
   const point = pointFromLngLat(event.lngLat);
   if (activeTool === 'source') {
@@ -960,6 +1196,57 @@ $('#replace-image-background').addEventListener('click', () => {
   $('#image-background-file').click();
 });
 
+function defaultStructureSize() {
+  return imageBackground
+    ? Math.max(MINIMUM_INITIAL_STRUCTURE_SIZE_METRES, Math.min(DEFAULT_STRUCTURE_SIZE_METRES, imageBackground.widthMetres / 5))
+    : DEFAULT_STRUCTURE_SIZE_METRES;
+}
+
+function setStructureCreationDefaults() {
+  $('#structure-material').value = 'inherit';
+}
+
+$('#structure-menu-button').addEventListener('click', () => {
+  closeImagePanel();
+  structurePanelOpen = !structurePanelOpen;
+  if (structurePanelOpen && !selectedStructure()) setStructureCreationDefaults();
+  syncStructurePanel();
+});
+
+$('#create-structure').addEventListener('click', () => {
+  const center = map.getCenter();
+  const size = defaultStructureSize();
+  const structure = {
+    id: crypto.randomUUID(),
+    center: { latitude: center.lat, longitude: center.lng },
+    verticesMetres: createRectangleVertices(size, size),
+    rotationDegrees: imageBackground?.rotationDegrees ?? 0,
+    material: materialValues.has($('#structure-material').value) ? $('#structure-material').value : 'inherit'
+  };
+  state.structures.push(structure);
+  selectedStructureId = structure.id;
+  structurePanelOpen = true;
+  $('#echo-field-button').disabled = false;
+  syncStructureGeometry();
+  commitStructureGeometry();
+});
+
+function updateSelectedStructureFromPanel() {
+  const structure = selectedStructure();
+  if (!structure) return;
+  structure.material = materialValues.has($('#structure-material').value) ? $('#structure-material').value : 'inherit';
+  syncStructureGeometry();
+  commitStructureGeometry();
+}
+
+$('#structure-material').addEventListener('change', updateSelectedStructureFromPanel);
+$('#delete-structure').addEventListener('click', deleteSelectedStructure);
+document.addEventListener('keydown', event => {
+  if (!['Delete', 'Backspace'].includes(event.key) || !selectedStructure() || /INPUT|SELECT|TEXTAREA/.test(event.target.tagName)) return;
+  event.preventDefault();
+  deleteSelectedStructure();
+});
+
 $('#image-background-file').addEventListener('change', async event => {
   const [file] = event.currentTarget.files;
   if (!file) return;
@@ -1077,7 +1364,7 @@ function monitorInitialBuildingLoad() {
     map.off('error', onError);
     setBuildingsLoading(false);
     $('#buildings-button').title = loaded ? 'Hide building data' : 'Building data could not be loaded';
-    $('#echo-field-button').disabled = Boolean(imageBackground) || !loaded;
+    $('#echo-field-button').disabled = !loaded && state.structures.length === 0;
     if (loaded) $('#echo-field-button').title = 'Create an automatic echo field around the Listener';
   };
   const onSourceData = event => {
@@ -1101,8 +1388,8 @@ $('#buildings-button').addEventListener('click', () => {
   const button = $('#buildings-button');
   button.setAttribute('aria-pressed', String(state.buildingsVisible));
   button.title = state.buildingsVisible ? 'Hide building data' : 'Load building data';
-  $('#echo-field-button').disabled = !state.buildingsVisible || firstLoad;
-  if (!state.buildingsVisible && echoFieldEnabled) setEchoFieldEnabled(false);
+  $('#echo-field-button').disabled = (!state.buildingsVisible || firstLoad) && state.structures.length === 0;
+  if (!state.buildingsVisible && echoFieldEnabled && state.structures.length === 0) setEchoFieldEnabled(false);
   if (state.buildingsVisible && map.getZoom() < 14) map.easeTo({ zoom: 14 });
 });
 
@@ -1145,7 +1432,7 @@ function setEchoFieldEnabled(enabled, restoredReflectors = null) {
     automaticReflectors = [];
     button.textContent = 'Echo field';
     button.title = 'Create an automatic echo field around the Listener';
-    button.disabled = !state.buildingsVisible;
+    button.disabled = !hasEchoFieldWalls();
     syncEchoFieldGeometry();
     render();
   }
@@ -1788,6 +2075,7 @@ function currentWorkspaceProject() {
     listener: state.listener,
     reflectors: state.reflectors,
     automaticReflectors,
+    structures: state.structures,
     pointsLinked: state.pointsLinked,
     globalReflectionLevelDb: state.globalReflectionLevelDb,
     globalMaterial: state.globalMaterial,
@@ -1890,6 +2178,7 @@ $('#open-project-file').addEventListener('change', async event => {
     source: opened.source,
     listener: opened.listener,
     reflectors: opened.reflectors,
+    structures: opened.structures,
     pointsLinked: opened.pointsLinked,
     globalReflectionLevelDb: opened.globalReflectionLevelDb,
     globalMaterial: opened.globalMaterial,
@@ -1897,12 +2186,13 @@ $('#open-project-file').addEventListener('change', async event => {
   });
   monitorRenderCache = null;
   automaticReflectors = [];
+  selectedStructureId = null;
   setImageBackground(null, { transformGeometry: false });
   syncWorkspaceControls();
   map.jumpTo({ center: [opened.mapView.longitude, opened.mapView.latitude], zoom: opened.mapView.zoom });
   syncMarkers();
   if (opened.background) setImageBackground(opened.background, { transformGeometry: false });
-  if (opened.echoFieldEnabled && !opened.background) setEchoFieldEnabled(true, opened.automaticReflectors);
+  if (opened.echoFieldEnabled) setEchoFieldEnabled(true, opened.automaticReflectors);
   else render();
   saveWorkspaceNow();
 });

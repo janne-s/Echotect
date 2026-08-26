@@ -7,6 +7,7 @@ const workspace = {
   source: { latitude: 60.1, longitude: 24.9 }, listener: { latitude: 60.2, longitude: 25 },
   reflectors: [{ id: 'manual-1', latitude: 60.15, longitude: 24.95, levelDb: -6, material: 'brick' }],
   automaticReflectors: [{ id: 'area-1', latitude: 60.16, longitude: 24.96, levelDb: -15, material: 'concrete', buildingEdge: [[24.95, 60.15], [24.97, 60.17]], reflectionKind: 'specular' }],
+  structures: [{ id: 'structure-1', center: { latitude: 60.18, longitude: 24.98 }, verticesMetres: [{ x: -10, y: -6 }, { x: 10, y: -6 }, { x: 10, y: 6 }, { x: -10, y: 6 }], rotationDegrees: 30, material: 'brick' }],
   pointsLinked: false, globalReflectionLevelDb: -6, globalMaterial: 'generic', echoFieldEnabled: true,
   settings: { heading: 123, arrivalsOnly: true, panningMode: 'hrtf-live', playbackMode: 'rendered', echoFieldRadiusMetres: 180, echoField: { pointMode: 'persistent', lateMode: 'convolution', airMode: 'standard' } },
   mapView: { latitude: 60.2, longitude: 25, zoom: 16 }
@@ -24,6 +25,7 @@ test('workspace project round-trips editable state without derived echo data', (
   assert.equal(opened.automaticReflectors[0].buildingEdge.length, 2);
   assert.equal(opened.echoFieldEnabled, true);
   assert.equal(opened.background, null);
+  assert.deepEqual(opened.structures, workspace.structures);
 });
 
 test('export manifests are not accepted as editable workspace projects', () => {

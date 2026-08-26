@@ -73,11 +73,12 @@
       </div>
       <input id="image-background-file" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp">
       <div id="image-editor" class="image-editor" hidden>
-        <div class="image-editor-buttons" aria-label="Image tools">
-          <button type="button" data-image-panel="scale" aria-label="Calibrate image scale" title="Calibrate image scale"><i class="fa-solid fa-ruler-horizontal" aria-hidden="true"></i></button>
-          <button type="button" data-image-panel="rotation" aria-label="Rotate image" title="Rotate image"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>
-          <button type="button" data-image-panel="opacity" aria-label="Image opacity" title="Image opacity"><i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i></button>
-          <button id="replace-image-background" type="button" aria-label="Choose another image" title="Choose another image"><i class="fa-solid fa-image" aria-hidden="true"></i></button>
+        <div id="image-editor-buttons" class="image-editor-buttons" aria-label="Image tools">
+          <button type="button" data-image-only data-image-panel="scale" aria-label="Calibrate image scale" title="Calibrate image scale"><i class="fa-solid fa-ruler-horizontal" aria-hidden="true"></i></button>
+          <button type="button" data-image-only data-image-panel="rotation" aria-label="Rotate image" title="Rotate image"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button>
+          <button type="button" data-image-only data-image-panel="opacity" aria-label="Image opacity" title="Image opacity"><i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i></button>
+          <button id="structure-menu-button" type="button" aria-label="Structure tools" title="Structure tools" aria-pressed="false"><i class="fa-solid fa-draw-polygon" aria-hidden="true"></i></button>
+          <button id="replace-image-background" data-image-only type="button" aria-label="Choose another image" title="Choose another image"><i class="fa-solid fa-image" aria-hidden="true"></i></button>
         </div>
         <div id="image-scale-panel" class="image-editor-panel" data-image-editor-panel="scale" hidden>
           <strong>Scale</strong>
@@ -96,6 +97,14 @@
         <div class="image-editor-panel" data-image-editor-panel="opacity" hidden>
           <label for="image-background-opacity">Opacity <output id="image-background-opacity-value">75%</output></label>
           <input id="image-background-opacity" type="range" min="0.1" max="1" step="0.05">
+        </div>
+        <div id="structure-panel" class="image-editor-panel structure-panel" hidden>
+          <strong>Structure</strong>
+          <label for="structure-material">Material <select id="structure-material"><option value="inherit">Global</option><option value="generic">Generic</option><option value="concrete">Concrete</option><option value="glass">Glass</option><option value="brick">Brick</option><option value="stone">Stone</option><option value="metal">Metal</option><option value="wood">Wood</option><option value="vegetation">Vegetation</option></select></label>
+          <div class="structure-actions">
+            <button id="create-structure" class="primary" type="button">Create structure</button>
+            <button id="delete-structure" class="danger" type="button" aria-label="Delete selected structure" title="Delete selected structure"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+          </div>
         </div>
       </div>
     </section>

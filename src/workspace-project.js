@@ -2,6 +2,7 @@ import { normalizeEchoFieldSettings } from './echo-field-settings.js';
 import { isValidCoordinate } from './geo.js';
 import { MATERIAL_LABELS } from './materials.js';
 import { boundedValue } from './range.js';
+import { validStructure } from './structures.js';
 
 export const WORKSPACE_PROJECT_FORMAT = 'echotect-workspace';
 export const REFLECTION_LEVEL_RANGE = Object.freeze({ minimum: -18, maximum: -1, fallback: -6 });
@@ -35,6 +36,19 @@ function reflectorList(value, label) {
   return reflectors;
 }
 
+function structureList(value) {
+  if (!Array.isArray(value)) throw new Error('Project structures must be an array.');
+  if (value.some(item => !validStructure(item))) throw new Error('Project structures contain invalid geometry.');
+  if (new Set(value.map(item => item.id)).size !== value.length) throw new Error('Project structure ids must be unique.');
+  return value.map(item => ({
+    id: item.id,
+    center: { latitude: item.center.latitude, longitude: item.center.longitude },
+    verticesMetres: item.verticesMetres.map(point => ({ x: point.x, y: point.y })),
+    rotationDegrees: item.rotationDegrees,
+    material: materialValues.has(item.material) ? item.material : 'inherit'
+  }));
+}
+
 function projectBackground(value) {
   if (value == null) return null;
   if (!['image/png', 'image/jpeg', 'image/webp'].some(type => value.dataUrl?.startsWith(`data:${type};base64,`))) throw new Error('Project background image data is invalid.');
@@ -51,7 +65,7 @@ function projectBackground(value) {
   };
 }
 
-export function createWorkspaceProject({ project, source, listener, reflectors, automaticReflectors, pointsLinked, globalReflectionLevelDb, globalMaterial, settings, echoFieldEnabled, mapView, background = null, savedAt = new Date().toISOString() }) {
+export function createWorkspaceProject({ project, source, listener, reflectors, automaticReflectors, structures = [], pointsLinked, globalReflectionLevelDb, globalMaterial, settings, echoFieldEnabled, mapView, background = null, savedAt = new Date().toISOString() }) {
   const manual = reflectorList(reflectors, 'Project reflectors');
   const automatic = reflectorList(automaticReflectors, 'Echo field reflectors');
   if (new Set([...manual, ...automatic].map(reflector => reflector.id)).size !== manual.length + automatic.length) throw new Error('All project reflector ids must be unique.');
@@ -60,7 +74,7 @@ export function createWorkspaceProject({ project, source, listener, reflectors, 
     project: { id: project.id, name: project.name, createdAt: project.createdAt, savedAt },
     background: projectBackground(background),
     mapView,
-    geometry: { source, listener, pointsLinked, reflectors: manual, echoFieldReflectors: automatic },
+    geometry: { source, listener, pointsLinked, reflectors: manual, echoFieldReflectors: automatic, structures: structureList(structures) },
     levels: { globalReflectionLevelDb, globalMaterial },
     monitor: { heading: settings.heading, arrivalsOnly: settings.arrivalsOnly, panningMode: settings.panningMode, playbackMode: settings.playbackMode },
     echoField: { enabled: echoFieldEnabled, radiusMetres: settings.echoFieldRadiusMetres },
@@ -76,6 +90,7 @@ export function parseWorkspaceProject(text) {
   if (typeof value.project?.id !== 'string' || !value.project.id || typeof value.project?.name !== 'string' || !value.project.name.trim()) throw new Error('Project identity is invalid.');
   const reflectors = reflectorList(value.geometry.reflectors, 'Project reflectors');
   const automaticReflectors = reflectorList(value.geometry.echoFieldReflectors, 'Echo field reflectors');
+  const structures = structureList(value.geometry.structures ?? []);
   const allIds = [...reflectors, ...automaticReflectors].map(reflector => reflector.id);
   if (new Set(allIds).size !== allIds.length) throw new Error('All project reflector ids must be unique.');
   const globalMaterial = materialValues.has(value.levels?.globalMaterial) && value.levels.globalMaterial !== 'inherit' ? value.levels.globalMaterial : 'generic';
@@ -90,6 +105,7 @@ export function parseWorkspaceProject(text) {
     listener: { latitude: value.geometry.listener.latitude, longitude: value.geometry.listener.longitude },
     reflectors,
     automaticReflectors,
+    structures,
     pointsLinked: Boolean(value.geometry.pointsLinked),
     globalReflectionLevelDb: boundedValue(value.levels?.globalReflectionLevelDb, REFLECTION_LEVEL_RANGE),
     globalMaterial,

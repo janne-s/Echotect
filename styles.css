@@ -239,7 +239,11 @@ input[type="range"]:focus-visible {
   transform: translateX(-50%);
 }
 .image-editor[hidden],
+.image-editor-buttons[hidden],
 .image-editor-panel[hidden] {
+  display: none;
+}
+.image-editor-buttons button[hidden] {
   display: none;
 }
 .image-editor-buttons {
@@ -320,7 +324,38 @@ input[type="range"]:focus-visible {
   background: #222;
   color: var(--ink);
 }
-.image-editor-panel .primary {
+.structure-panel label {
+  margin-top: 8px;
+}
+.structure-panel select {
+  width: 90px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 5px 7px;
+  background: #222;
+  color: var(--ink);
+}
+.structure-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px;
+  margin-top: 11px;
+}
+.structure-actions .danger {
+  display: grid;
+  width: 34px;
+  place-items: center;
+  padding: 0;
+}
+.structure-handle {
+  width: 13px;
+  height: 13px;
+  border: 2px solid #111;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 1px 4px #000a;
+}
+.image-editor-panel > .primary {
   margin-top: 10px;
 }
 .side-panel {

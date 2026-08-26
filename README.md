@@ -30,6 +30,20 @@ Use **Image** to replace the map with a PNG, JPEG, or WebP sketch. Calibrate its
 scale from a known distance in the image, rotate it as needed, and place Source,
 Listener, and Point Reflectors on top. The image is included in the saved project.
 
+In Image mode, use the polygon tool to add a Structure. A new Structure starts as
+a four-sided rectangle. Drag its area to move it, an edge to move that side, a
+vertex handle to reshape it. Clicking an edge adds a vertex; double-clicking a
+vertex removes it while at least three remain. The polygon is sized and shaped
+directly on the map. Echo field derives reflective walls from its edges, so it can
+be used without loading building data. Structures remain editable in a saved
+project.
+
+The polygon tool is also available in Map mode as the only bottom-centre tool.
+It opens the Structure panel; **Create structure** adds a polygon and the compact
+trash button removes the selected polygon.
+Existing Structures can be selected, reshaped, moved, or deleted in either mode;
+only the background-image controls are exclusive to Image mode.
+
 ## Echo field settings
 
 - **Playback mode** — Plays directly in Live mode or prepares a reusable browser
