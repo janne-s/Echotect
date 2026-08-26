@@ -570,7 +570,7 @@ input[type="range"]:focus-visible {
   pointer-events: none;
 }
 #play-button.playing::before {
-  animation: playback-progress var(--playback-duration) linear forwards;
+  animation: playback-progress var(--playback-duration) linear var(--playback-delay, 0s) forwards;
 }
 @keyframes playback-progress {
   to {

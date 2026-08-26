@@ -123,6 +123,7 @@ let monitorRenderCache = null;
 let renderedPlayback = null;
 let renderingPlayback = false;
 let playbackRevision = 0;
+let activePlayback = null;
 let playbackProgressTimer = null;
 let reflectionPulseAnimationFrame = null;
 let lastSearchAt = 0;
@@ -1285,7 +1286,8 @@ async function loadDefaultHandclap(context) {
 function syncPlayButton() {
   const button = $('#play-button');
   if (!button) return;
-  if (renderingPlayback) button.textContent = 'Rendering…';
+  if (activePlayback) button.textContent = 'Stop';
+  else if (renderingPlayback) button.textContent = 'Rendering…';
   else if (state.settings.playbackMode === 'rendered') button.textContent = renderedPlayback ? 'Play render' : 'Render';
   else button.textContent = 'Play impulse';
   button.disabled = renderingPlayback;
@@ -1299,22 +1301,23 @@ function clearPlaybackProgress() {
   $('#play-button').classList.remove('playing');
 }
 
-function startPlaybackProgress(durationSeconds) {
+function startPlaybackProgress(durationSeconds, delaySeconds = 0) {
   clearPlaybackProgress();
   if (!(durationSeconds > 0)) return;
   const button = $('#play-button');
   button.style.setProperty('--playback-duration', `${durationSeconds}s`);
+  button.style.setProperty('--playback-delay', `${Math.max(0, delaySeconds)}s`);
   void button.offsetWidth;
   button.classList.add('playing');
-  playbackProgressTimer = setTimeout(clearPlaybackProgress, durationSeconds * 1000);
+  playbackProgressTimer = setTimeout(clearPlaybackProgress, (Math.max(0, delaySeconds) + durationSeconds) * 1000);
 }
 
-/** Ignores the inaudible numerical residue left by filters when sizing the monitor timeline. */
-function audibleDurationSeconds(channels, sampleRate) {
-  let peak = 0;
-  for (const channel of channels) for (const sample of channel) peak = Math.max(peak, Math.abs(sample));
-  if (!peak) return 0;
-  const threshold = peak * 10 ** (-60 / 20);
+/** Finds the last sample above the path cutoff relative to the unchanged source, ignoring filter residue below it. */
+function cutoffDurationSeconds(channels, sampleRate, inputMono) {
+  let sourcePeak = 0;
+  for (const sample of inputMono) sourcePeak = Math.max(sourcePeak, Math.abs(sample));
+  if (!sourcePeak) return 0;
+  const threshold = sourcePeak * 10 ** (state.settings.echoField.cutoffDb / 20);
   for (let frame = channels[0].length - 1; frame >= 0; frame -= 1) {
     if (channels.some(channel => Math.abs(channel[frame]) >= threshold)) return (frame + 1) / sampleRate;
   }
@@ -1322,7 +1325,7 @@ function audibleDurationSeconds(channels, sampleRate) {
 }
 
 function hrtfMonitorDurationSeconds(data, context) {
-  let duration = audibleDurationSeconds(data.rendered.late, WAV_SAMPLE_RATE);
+  let duration = cutoffDurationSeconds(data.rendered.late, WAV_SAMPLE_RATE, data.inputMono);
   const inputFrames = data.inputMono.length;
   if (data.plan.playOnset) duration = Math.max(duration, inputFrames / context.sampleRate);
   const arrivals = [...data.earlyEvents];
@@ -1332,6 +1335,38 @@ function hrtfMonitorDurationSeconds(data, context) {
     duration = Math.max(duration, (event.frame + inputFrames + filterFrames - 1) / context.sampleRate);
   }
   return duration;
+}
+
+function stopPlayback() {
+  if (!activePlayback) return;
+  const playback = activePlayback;
+  activePlayback = null;
+  playback.sources.forEach(source => {
+    try { source.stop(); } catch { /* A source that has already ended needs no action. */ }
+  });
+  clearPlaybackProgress();
+  clearReflectionPulses();
+  syncPlayButton();
+}
+
+function beginPlayback(context, sources, startTime, durationSeconds) {
+  stopPlayback();
+  const delaySeconds = Math.max(0, startTime - context.currentTime);
+  const playback = { context, sources, startTime, durationSeconds };
+  activePlayback = playback;
+  startPlaybackProgress(durationSeconds, delaySeconds);
+  let remainingSources = sources.length;
+  const sourceEnded = () => {
+    remainingSources -= 1;
+    if (remainingSources > 0 || activePlayback !== playback) return;
+    activePlayback = null;
+    clearPlaybackProgress();
+    clearReflectionPulses();
+    syncPlayButton();
+  };
+  sources.forEach(source => source.addEventListener('ended', sourceEnded, { once: true }));
+  sources.forEach(source => source.stop(startTime + durationSeconds));
+  syncPlayButton();
 }
 
 function invalidateRenderedPlayback() {
@@ -1355,8 +1390,10 @@ function createRenderedSource(context, channels) {
   return source;
 }
 
-function playRenderedChannels(context, channels) {
-  createRenderedSource(context, channels).start(playbackStartTime(context));
+function playRenderedChannels(context, channels, startTime = playbackStartTime(context)) {
+  const source = createRenderedSource(context, channels);
+  source.start(startTime);
+  return source;
 }
 
 function clearReflectionPulses() {
@@ -1366,7 +1403,7 @@ function clearReflectionPulses() {
   canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
 }
 
-function animateReflectionPulses(events, reflectors, lateEvents = []) {
+function animateReflectionPulses(events, reflectors, lateEvents = [], durationSeconds = Infinity) {
   clearReflectionPulses();
   if (!events.length || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const pointsById = new Map(reflectors.map(reflector => [reflector.id, reflector]));
@@ -1431,6 +1468,10 @@ function animateReflectionPulses(events, reflectors, lateEvents = []) {
     context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     context.clearRect(0, 0, width, height);
     const elapsed = (now - startedAt) / 1000;
+    if (elapsed >= durationSeconds) {
+      clearReflectionPulses();
+      return;
+    }
     while (firstActive < pulses.length && elapsed - pulses[firstActive].delaySeconds > .48) firstActive += 1;
     for (let index = firstActive; index < pulses.length; index += 1) {
       const pulse = pulses[index];
@@ -1473,6 +1514,7 @@ function monitorRenderKey(reflectors, outputs) {
 }
 
 function changeAudioSource() {
+  stopPlayback();
   audioSourceRevision += 1;
   monitorRenderCache = null;
   invalidateRenderedPlayback();
@@ -1527,7 +1569,7 @@ function createHrtfArrival(context, buffer, event) {
   return { source, frame: event.frame };
 }
 
-function playHrtfMonitor(context, inputMono, lateChannels, reflectors, directArrival, plan, earlyEvents = null) {
+function playHrtfMonitor(context, inputMono, lateChannels, reflectors, directArrival, plan, earlyEvents = null, startTime = playbackStartTime(context)) {
   const inputBuffer = monoAudioBuffer(context, inputMono);
   const lateSource = createRenderedSource(context, lateChannels);
   const onset = plan.playOnset
@@ -1538,10 +1580,10 @@ function playHrtfMonitor(context, inputMono, lateChannels, reflectors, directArr
   }))
     .map(event => createHrtfArrival(context, inputBuffer, event));
   if (plan.playDirectArrival) arrivals.push(createHrtfArrival(context, inputBuffer, directArrival));
-  const startTime = playbackStartTime(context);
   onset?.source.start(startTime);
   lateSource.start(startTime);
   arrivals.forEach(arrival => arrival.source.start(startTime + arrival.frame / context.sampleRate));
+  return [lateSource, ...arrivals.map(arrival => arrival.source), ...(onset ? [onset.source] : [])];
 }
 
 async function monitorPlaybackData(context, renderedMode = false) {
@@ -1586,12 +1628,18 @@ async function renderedMonitorChannels(data) {
 
 $('#play-button').addEventListener('click', async () => {
   const button = $('#play-button');
+  if (activePlayback) {
+    stopPlayback();
+    return;
+  }
   if (state.settings.playbackMode === 'rendered' && renderedPlayback) {
     const context = getAudioContext();
     await context.resume();
-    animateReflectionPulses(renderedPlayback.earlyEvents, renderedPlayback.reflectors, renderedPlayback.reflectionEvents);
-    startPlaybackProgress(audibleDurationSeconds(renderedPlayback.channels, WAV_SAMPLE_RATE));
-    playRenderedChannels(context, renderedPlayback.channels);
+    const durationSeconds = cutoffDurationSeconds(renderedPlayback.channels, WAV_SAMPLE_RATE, renderedPlayback.inputMono);
+    const startTime = playbackStartTime(context);
+    const source = playRenderedChannels(context, renderedPlayback.channels, startTime);
+    beginPlayback(context, [source], startTime, durationSeconds);
+    animateReflectionPulses(renderedPlayback.earlyEvents, renderedPlayback.reflectors, renderedPlayback.reflectionEvents, durationSeconds);
     return;
   }
   const rendering = state.settings.playbackMode === 'rendered';
@@ -1614,17 +1662,22 @@ $('#play-button').addEventListener('click', async () => {
         channels,
         earlyEvents: data.earlyEvents,
         reflectionEvents: data.rendered.reflectionEvents ?? [],
-        reflectors: data.reflectors
+        reflectors: data.reflectors,
+        inputMono: data.inputMono
       };
     } else if (data.hrtfMonitor) {
-      animateReflectionPulses(data.earlyEvents, data.reflectors, data.rendered.reflectionEvents);
-      startPlaybackProgress(hrtfMonitorDurationSeconds(data, context));
-      playHrtfMonitor(context, data.inputMono, data.rendered.late, data.reflectors, data.directArrival, data.plan, data.earlyEvents);
+      const durationSeconds = hrtfMonitorDurationSeconds(data, context);
+      const startTime = playbackStartTime(context);
+      const sources = playHrtfMonitor(context, data.inputMono, data.rendered.late, data.reflectors, data.directArrival, data.plan, data.earlyEvents, startTime);
+      beginPlayback(context, sources, startTime, durationSeconds);
+      animateReflectionPulses(data.earlyEvents, data.reflectors, data.rendered.reflectionEvents, durationSeconds);
     } else {
-      animateReflectionPulses(data.earlyEvents, data.reflectors, data.rendered.reflectionEvents);
       const channels = spatialMonitorChannels(data);
-      startPlaybackProgress(audibleDurationSeconds(channels, WAV_SAMPLE_RATE));
-      playRenderedChannels(context, channels);
+      const durationSeconds = cutoffDurationSeconds(channels, WAV_SAMPLE_RATE, data.inputMono);
+      const startTime = playbackStartTime(context);
+      const source = playRenderedChannels(context, channels, startTime);
+      beginPlayback(context, [source], startTime, durationSeconds);
+      animateReflectionPulses(data.earlyEvents, data.reflectors, data.rendered.reflectionEvents, durationSeconds);
     }
   } catch (error) {
     if (error?.name !== 'AbortError') console.error(error);
@@ -1839,8 +1892,8 @@ $('#export-form').addEventListener('submit', async event => {
 $('#reset-audio').addEventListener('click', async event => {
   const button = event.currentTarget;
   const context = audioContext;
+  stopPlayback();
   audioContext = null;
-  clearPlaybackProgress();
   if (!context || context.state === 'closed') return;
   button.disabled = true;
   button.setAttribute('aria-busy', 'true');
