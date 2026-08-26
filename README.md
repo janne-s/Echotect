@@ -53,15 +53,15 @@ Listener, and Point Reflectors on top. The image is included in the saved projec
   natural setting and Off removes this loss.
 - **Material absorption scale** — Adjusts how strongly reflector materials color
   and absorb the sound; `1.00×` uses the normal material presets.
-- **Late field** — Selects the sampled Convolution response or the Feedback
-  network reverb.
-- **Response duration** — Sets the maximum Convolution response length.
+- **Late field** — Selects the Sampled paths response or the Feedback network.
+- **Late field level** — Adjusts the level of the late response in decibels.
+- **Response duration** — Sets the maximum Sampled paths response length.
 - **Echo field surfaces** — Limits how many nearby building surfaces are used.
-- **Late path samples** — Sets how many sampled paths form the Convolution tail.
+- **Late path samples** — Sets how many sampled paths form the late response.
 - **Late field bounces** — Limits the number of surface bounces in the late
   field.
 - **Cutoff level** — Stops paths after they have become quieter than this level.
-- **Tail persistence** — Controls how readily Convolution paths continue after
+- **Tail persistence** — Controls how readily sampled paths continue after
   each bounce.
 - **Tail length** — Sets the Feedback network reverb time.
 - **Density** — Controls how closely packed the Feedback network echoes are.

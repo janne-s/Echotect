@@ -72,6 +72,11 @@ export const ECHO_FIELD_SETTINGS = Object.freeze({
     maximum: 2,
     step: .05,
     fallback: 1 },
+  lateFieldLevelDb: {
+    minimum: -12,
+    maximum: 6,
+    step: 1,
+    fallback: 2 },
   lateWalks: {
     minimum: 256,
     maximum: 65536,

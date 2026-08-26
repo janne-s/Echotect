@@ -123,6 +123,7 @@ let monitorRenderCache = null;
 let renderedPlayback = null;
 let renderingPlayback = false;
 let playbackRevision = 0;
+let playbackProgressTimer = null;
 let reflectionPulseAnimationFrame = null;
 let lastSearchAt = 0;
 let hoveredBuildingEdge = null;
@@ -816,6 +817,7 @@ const echoSettingInputs = {
   airAbsorptionAmount: '#setting-air-amount',
   geometricSpreadingAmount: '#setting-geometric-spreading',
   materialColorationAmount: '#setting-material-coloration',
+  lateFieldLevelDb: '#setting-late-level',
   lateWalks: '#setting-late-walks',
   maxBounces: '#setting-bounces',
   cutoffDb: '#setting-cutoff',
@@ -838,6 +840,7 @@ const echoSettingOutputs = {
   airAbsorptionAmount: ['#setting-air-amount-value', value => `${Number(value).toFixed(2)}× ISO`],
   geometricSpreadingAmount: ['#setting-geometric-spreading-value', value => Number(value) === 0 ? 'Off' : Number(value) === 1 ? '1/r' : `1/r^${Number(value).toFixed(2)}`],
   materialColorationAmount: ['#setting-material-coloration-value', value => `${Number(value).toFixed(2)}×`],
+  lateFieldLevelDb: ['#setting-late-level-value', value => `${Number(value) > 0 ? '+' : ''}${value} dB`],
   lateWalks: ['#setting-late-walks-value', value => Number(value).toLocaleString('en-US')],
   maxBounces: ['#setting-bounces-value', value => value],
   cutoffDb: ['#setting-cutoff-value', value => `${value} dB`],
@@ -1290,6 +1293,47 @@ function syncPlayButton() {
   else button.removeAttribute('aria-busy');
 }
 
+function clearPlaybackProgress() {
+  clearTimeout(playbackProgressTimer);
+  playbackProgressTimer = null;
+  $('#play-button').classList.remove('playing');
+}
+
+function startPlaybackProgress(durationSeconds) {
+  clearPlaybackProgress();
+  if (!(durationSeconds > 0)) return;
+  const button = $('#play-button');
+  button.style.setProperty('--playback-duration', `${durationSeconds}s`);
+  void button.offsetWidth;
+  button.classList.add('playing');
+  playbackProgressTimer = setTimeout(clearPlaybackProgress, durationSeconds * 1000);
+}
+
+/** Ignores the inaudible numerical residue left by filters when sizing the monitor timeline. */
+function audibleDurationSeconds(channels, sampleRate) {
+  let peak = 0;
+  for (const channel of channels) for (const sample of channel) peak = Math.max(peak, Math.abs(sample));
+  if (!peak) return 0;
+  const threshold = peak * 10 ** (-60 / 20);
+  for (let frame = channels[0].length - 1; frame >= 0; frame -= 1) {
+    if (channels.some(channel => Math.abs(channel[frame]) >= threshold)) return (frame + 1) / sampleRate;
+  }
+  return 0;
+}
+
+function hrtfMonitorDurationSeconds(data, context) {
+  let duration = audibleDurationSeconds(data.rendered.late, WAV_SAMPLE_RATE);
+  const inputFrames = data.inputMono.length;
+  if (data.plan.playOnset) duration = Math.max(duration, inputFrames / context.sampleRate);
+  const arrivals = [...data.earlyEvents];
+  if (data.plan.playDirectArrival) arrivals.push(data.directArrival);
+  for (const event of arrivals) {
+    const filterFrames = event.filter?.length ?? 1;
+    duration = Math.max(duration, (event.frame + inputFrames + filterFrames - 1) / context.sampleRate);
+  }
+  return duration;
+}
+
 function invalidateRenderedPlayback() {
   playbackRevision += 1;
   renderedPlayback = null;
@@ -1516,7 +1560,8 @@ async function monitorPlaybackData(context, renderedMode = false) {
   const outputs = hrtfMonitor ? ['late'] : plan.playDirectArrival ? ['wet'] : ['early', 'late'];
   const renderOptions = {
     source: state.source, listener: state.listener, reflectors, heading: state.settings.heading,
-    settings: { ...state.settings.echoField, spatialAudio: true }, distanceMetres, inputMono, outputs, earlyEvents,
+    settings: { ...state.settings.echoField, spatialAudio: true }, distanceMetres, inputMono, outputs,
+    earlyEvents: renderedMode ? earlyEvents : null,
     maximumVisualEvents: MAXIMUM_LATE_REFLECTION_PULSES
   };
   const rendered = await renderMonitorAudio(monitorRenderKey(reflectors, outputs), renderOptions);
@@ -1545,6 +1590,7 @@ $('#play-button').addEventListener('click', async () => {
     const context = getAudioContext();
     await context.resume();
     animateReflectionPulses(renderedPlayback.earlyEvents, renderedPlayback.reflectors, renderedPlayback.reflectionEvents);
+    startPlaybackProgress(audibleDurationSeconds(renderedPlayback.channels, WAV_SAMPLE_RATE));
     playRenderedChannels(context, renderedPlayback.channels);
     return;
   }
@@ -1572,10 +1618,13 @@ $('#play-button').addEventListener('click', async () => {
       };
     } else if (data.hrtfMonitor) {
       animateReflectionPulses(data.earlyEvents, data.reflectors, data.rendered.reflectionEvents);
+      startPlaybackProgress(hrtfMonitorDurationSeconds(data, context));
       playHrtfMonitor(context, data.inputMono, data.rendered.late, data.reflectors, data.directArrival, data.plan, data.earlyEvents);
     } else {
       animateReflectionPulses(data.earlyEvents, data.reflectors, data.rendered.reflectionEvents);
-      playRenderedChannels(context, spatialMonitorChannels(data));
+      const channels = spatialMonitorChannels(data);
+      startPlaybackProgress(audibleDurationSeconds(channels, WAV_SAMPLE_RATE));
+      playRenderedChannels(context, channels);
     }
   } catch (error) {
     if (error?.name !== 'AbortError') console.error(error);
@@ -1772,7 +1821,7 @@ $('#export-form').addEventListener('submit', async event => {
       const inputMono = resampleToMono(importedAudioBuffer ?? await loadDefaultHandclap(getAudioContext()));
       const audio = await renderExportAudio({ source: state.source, listener: state.listener, reflectors: exportReflectors(), heading: state.settings.heading, settings: { ...state.settings.echoField, spatialAudio: true }, distanceMetres, inputMono, outputs });
       const addWav = (suffix, channels) => files.push({ name: `${stem}-${suffix}.wav`, data: encodeFloat32Wav(channels) });
-      if (selected.has('convolution')) addWav('ir-convolution', audio.convolutionIr);
+      if (selected.has('convolution')) addWav('ir-sampled-paths', audio.convolutionIr);
       if (selected.has('fdn')) addWav('ir-rendered-fdn', audio.fdnIr);
       if (selected.has('wet')) addWav('wet', audio.wet);
       if (selected.has('stems')) { addWav('stem-direct', audio.direct); addWav('stem-early', audio.early); addWav('stem-late', audio.late); }
@@ -1791,6 +1840,7 @@ $('#reset-audio').addEventListener('click', async event => {
   const button = event.currentTarget;
   const context = audioContext;
   audioContext = null;
+  clearPlaybackProgress();
   if (!context || context.state === 'closed') return;
   button.disabled = true;
   button.setAttribute('aria-busy', 'true');

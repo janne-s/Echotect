@@ -553,6 +553,30 @@ input[type="range"]:focus-visible {
   justify-content: center;
   gap: 7px;
 }
+#play-button {
+  position: relative;
+  overflow: hidden;
+}
+#play-button::before {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 22%;
+  background: rgba(255, 255, 255, 0.24);
+  content: "";
+  transform: scaleX(0);
+  transform-origin: left;
+  pointer-events: none;
+}
+#play-button.playing::before {
+  animation: playback-progress var(--playback-duration) linear forwards;
+}
+@keyframes playback-progress {
+  to {
+    transform: scaleX(1);
+  }
+}
 .modal {
   width: min(330px, calc(100vw - 24px));
   padding: 0;

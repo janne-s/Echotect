@@ -13,7 +13,9 @@ export function createProjectManifest({ projectId, projectName, createdAt, sourc
   const earlyPaths = createEarlyArrivalEvents({ source, listener, reflectors, settings: echoFieldSettings });
   const inputFrames = Math.ceil(inputDurationSeconds * WAV_SAMPLE_RATE);
   const { convolutionIrFrames, fdnIrFrames, timelineFrames } = exportFrameLayout({
-    settings: echoFieldSettings, earlyFrames: earlyPaths.map(path => path.frame + path.filter.length - 1), directFrame: direct.frame + direct.filter.length - 1, inputFrames
+    settings: echoFieldSettings, earlyFrames: earlyPaths.map(path => path.frame + path.filter.length - 1),
+    fdnInjectionFrames: earlyPaths.map(path => path.frame),
+    directFrame: direct.frame + direct.filter.length - 1, inputFrames
   });
   const renderDurationSeconds = timelineFrames / WAV_SAMPLE_RATE;
   return {
@@ -43,9 +45,9 @@ export function createProjectManifest({ projectId, projectName, createdAt, sourc
     },
     exports: {
       wav: { sampleRateHz: WAV_SAMPLE_RATE, sampleFormat: WAV_FORMAT, bitsPerSample: 32, channelCount: WAV_CHANNELS, channelLayout: ['left', 'right'], normalization: false, clipping: false, limiter: false, timingOffsetSeconds: 0 },
-      convolutionIr: { durationSeconds: convolutionIrFrames / WAV_SAMPLE_RATE, configuredLateFieldDurationSeconds: echoFieldSettings.durationSeconds, content: ['early-reflections', 'convolution-late-field'], lateFieldGain: lateFieldGain('convolution'), directIncluded: false },
-      renderedFdnIr: { durationSeconds: fdnIrFrames / WAV_SAMPLE_RATE, input: 'unit-impulse', content: ['early-reflections', 'fdn-late-field'], lateFieldGain: lateFieldGain('fdn'), directIncluded: false },
-      wetRender: { source: inputName, durationSeconds: renderDurationSeconds, content: ['direct-arrival', 'early', echoFieldSettings.lateMode === 'fdn' ? 'fdn-late-field' : 'convolution-late-field'], triggerIncluded: false, directIncluded: true, lateFieldGain: lateFieldGain(echoFieldSettings.lateMode) },
+      convolutionIr: { durationSeconds: convolutionIrFrames / WAV_SAMPLE_RATE, configuredLateFieldDurationSeconds: echoFieldSettings.durationSeconds, content: ['early-reflections', 'convolution-late-field'], lateFieldGain: lateFieldGain('convolution', echoFieldSettings.lateFieldLevelDb), directIncluded: false },
+      renderedFdnIr: { durationSeconds: fdnIrFrames / WAV_SAMPLE_RATE, input: 'unit-impulse', content: ['early-reflections', 'fdn-late-field'], lateFieldGain: lateFieldGain('fdn', echoFieldSettings.lateFieldLevelDb), directIncluded: false },
+      wetRender: { source: inputName, durationSeconds: renderDurationSeconds, content: ['direct-arrival', 'early', echoFieldSettings.lateMode === 'fdn' ? 'fdn-late-field' : 'convolution-late-field'], triggerIncluded: false, directIncluded: true, lateFieldGain: lateFieldGain(echoFieldSettings.lateMode, echoFieldSettings.lateFieldLevelDb) },
       stems: { alignedStartSeconds: 0, durationSeconds: renderDurationSeconds, files: ['direct', 'early', 'late'], directContent: ['source-onset-trigger', 'direct-arrival'], equalDuration: true }
     }
   };

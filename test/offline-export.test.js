@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createEarlyArrivalEvents } from '../src/arrivals.js';
 import { convolveFft, renderExportAudio } from '../src/offline-export.js';
 import { distanceMetres } from '../src/geo.js';
 
@@ -45,4 +46,28 @@ test('distinct direct stem contains trigger and propagated arrival while wet exc
   assert.equal(audio.directArrival[0][0], 0);
   assert.equal(audio.wet[0][0], 0);
   assert.ok(audio.directArrival[0].some(Boolean));
+});
+
+test('distant FDN late field cannot begin before its geometric reflection arrivals', async () => {
+  const source = { latitude: 60, longitude: 24 };
+  const listener = { latitude: 60.0075, longitude: 24 };
+  const reflectors = [
+    { id: 'a', latitude: 60.003, longitude: 24.001, levelDb: -6 },
+    { id: 'b', latitude: 60.0045, longitude: 23.999, levelDb: -6 }
+  ];
+  const settings = {
+    durationSeconds: 1, fdnTailSeconds: 1, lateMode: 'fdn', pointMode: 'persistent', pointPersistence: .65,
+    pointMaxBounces: 2, pointPathLimit: 32, maxBounces: 2, cutoffDb: -90, lateWalks: 8, tailPersistence: .6,
+    fdnDensity: .7, fdnDamping: .55, geometryInfluence: 1, airMode: 'off', geometricSpreadingAmount: 0
+  };
+  const firstReflectionFrame = Math.min(...createEarlyArrivalEvents({ source, listener, reflectors, settings, sampleRate: 1000 }).map(event => event.frame));
+  const audio = await renderExportAudio({
+    sampleRate: 1000, source, listener, reflectors, heading: 0, distanceMetres,
+    inputMono: new Float32Array([1]), settings, outputs: ['late']
+  });
+  assert.ok(firstReflectionFrame > 2000);
+  const preArrivalPeak = Math.max(...audio.late.flatMap(channel => [...channel.subarray(0, firstReflectionFrame)].map(Math.abs)));
+  const responsePeak = Math.max(...audio.late.flatMap(channel => [...channel.subarray(firstReflectionFrame)].map(Math.abs)));
+  assert.ok(preArrivalPeak < 1e-12);
+  assert.ok(responsePeak > 1e-8);
 });

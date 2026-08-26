@@ -2,7 +2,7 @@ import { createDirectArrivalEvent, createEarlyArrivalEvents } from './arrivals.j
 import { atmosphericBandGains, materialBandGains, OCTAVE_BAND_HZ, renderOctaveBandImpulse } from './acoustics.js';
 import { SOURCE_ONSET_GAIN } from './audio-model.js';
 import { exportFrameLayout, fdnResponseSeconds, lateFieldGain } from './export-layout.js';
-import { createFdnConfiguration } from './fdn.js';
+import { createFdnConfiguration, createFdnInjections } from './fdn.js';
 import { SPEED_OF_SOUND_METRES_PER_SECOND } from './geo.js';
 import { synthesizeLateReverb } from './late-reverb.js';
 import { equalPowerGains, stereoPan } from './spatial.js';
@@ -57,21 +57,32 @@ export function renderFdnImpulse(configuration, frameCount) {
   const indices = configuration.delaySamples.map(() => 0);
   const filtered = configuration.delaySamples.map(() => 0);
   const inputGain = FDN_INPUT_GAIN_MINIMUM + configuration.density * FDN_INPUT_GAIN_DENSITY_RANGE;
+  const injectionsByFrame = new Map();
+  const injections = configuration.injections ?? configuration.delaySamples.map((_, line) => ({ frame: 0, line, gain: line % 2 ? -1 : 1 }));
+  injections.forEach(injection => {
+    if (!injectionsByFrame.has(injection.frame)) injectionsByFrame.set(injection.frame, []);
+    injectionsByFrame.get(injection.frame).push(injection);
+  });
   for (let frame = 0; frame < frameCount; frame += 1) {
-    const dry = frame === 0 ? 1 : 0;
+    const input = new Float32Array(configuration.delaySamples.length);
+    injectionsByFrame.get(frame)?.forEach(injection => { input[injection.line] += injection.gain; });
     const taps = buffers.map((buffer, index) => {
       const value = buffer[indices[index]];
       filtered[index] += (value - filtered[index]) * (1 - configuration.damping * FDN_DAMPING_COEFFICIENT);
       return filtered[index];
     });
-    const mixed = taps.slice();
-    for (let span = 1; span < mixed.length; span *= 2) for (let start = 0; start < mixed.length; start += span * 2) for (let index = 0; index < span; index += 1) {
-      const a = mixed[start + index]; const b = mixed[start + index + span];
-      mixed[start + index] = a + b; mixed[start + index + span] = a - b;
+    let mixed;
+    if (configuration.feedbackMatrix) mixed = configuration.feedbackMatrix.map(row => row.reduce((sum, gain, index) => sum + taps[index] * gain, 0));
+    else {
+      mixed = taps.slice();
+      for (let span = 1; span < mixed.length; span *= 2) for (let start = 0; start < mixed.length; start += span * 2) for (let index = 0; index < span; index += 1) {
+        const a = mixed[start + index]; const b = mixed[start + index + span];
+        mixed[start + index] = a + b; mixed[start + index + span] = a - b;
+      }
+      mixed = mixed.map(value => value / Math.sqrt(mixed.length));
     }
     buffers.forEach((buffer, index) => {
-      buffer[indices[index]] = dry * inputGain * (index % 2 ? -1 : 1)
-        + mixed[index] / Math.sqrt(mixed.length) * configuration.feedback[index];
+      buffer[indices[index]] = input[index] * inputGain + mixed[index] * configuration.feedback[index];
       indices[index] = (indices[index] + 1) % buffer.length;
       output[0][frame] += taps[index] * configuration.outputGains[index][0] * FDN_OUTPUT_GAIN;
       output[1][frame] += taps[index] * configuration.outputGains[index][1] * FDN_OUTPUT_GAIN;
@@ -89,9 +100,10 @@ function colorFdnResponse(channels, configuration, reflectors, settings, sampleR
     const bands = OCTAVE_BAND_HZ.map(() => new Float32Array(channel.length));
     for (let frame = 0; frame < channel.length; frame += 1) {
       if (!channel[frame]) continue;
-      const pathMetres = frame / sampleRate * SPEED_OF_SOUND_METRES_PER_SECOND;
+      const elapsedFrames = Math.max(0, frame - (configuration.firstInjectionFrame ?? 0));
+      const pathMetres = elapsedFrames / sampleRate * SPEED_OF_SOUND_METRES_PER_SECOND;
       const air = atmosphericBandGains(pathMetres, settings);
-      const bounces = frame / Math.max(1, meanDelayFrames);
+      const bounces = elapsedFrames / Math.max(1, meanDelayFrames);
       for (let band = 0; band < bands.length; band += 1) bands[band][frame] = channel[frame] * air[band] * material[band] ** bounces;
     }
     return renderOctaveBandImpulse(bands, sampleRate);
@@ -202,8 +214,21 @@ export async function renderExportAudio({ source, listener, reflectors, heading,
   const earlyEvents = suppliedEarlyEvents ?? createEarlyArrivalEvents({ source, listener, reflectors, settings, sampleRate });
   const directEvent = createDirectArrivalEvent({ source, listener, settings, sampleRate });
   const reflectionEvents = [];
+  const fdnConfiguration = reflectors.length >= LATE_FIELD_MINIMUM_REFLECTORS ? createFdnConfiguration({
+    sampleRate, source, listener, reflectors, heading, distanceMetres, tailSeconds: settings.fdnTailSeconds,
+    density: settings.fdnDensity, damping: settings.fdnDamping, geometryInfluence: settings.geometryInfluence,
+    buildingOcclusion: settings.buildingOcclusion
+  }) : null;
+  const fdnInjections = fdnConfiguration ? createFdnInjections(earlyEvents, fdnConfiguration) : [];
+  if (fdnConfiguration) {
+    fdnConfiguration.injections = fdnInjections;
+    fdnConfiguration.firstInjectionFrame = fdnInjections.reduce((frame, injection) => Math.min(frame, injection.frame), Infinity);
+    if (!Number.isFinite(fdnConfiguration.firstInjectionFrame)) fdnConfiguration.firstInjectionFrame = 0;
+  }
   const { convolutionIrFrames, fdnIrFrames, timelineFrames } = exportFrameLayout({
-    settings, earlyFrames: earlyEvents.map(event => event.frame + event.filter.length - 1), directFrame: directEvent.frame + directEvent.filter.length - 1, inputFrames: inputMono.length, sampleRate
+    settings, earlyFrames: earlyEvents.map(event => event.frame + event.filter.length - 1),
+    fdnInjectionFrames: fdnInjections.map(injection => injection.frame),
+    directFrame: directEvent.frame + directEvent.filter.length - 1, inputFrames: inputMono.length, sampleRate
   });
 
   const earlyIr = once(() => {
@@ -225,35 +250,29 @@ export async function renderExportAudio({ source, listener, reflectors, heading,
   }));
 
   const fdnLateIr = once(() => {
-    if (reflectors.length < LATE_FIELD_MINIMUM_REFLECTORS) return stereo(fdnIrFrames);
-    const configuration = createFdnConfiguration({
-      sampleRate, source, listener, reflectors, heading, distanceMetres, tailSeconds: settings.fdnTailSeconds,
-      density: settings.fdnDensity, damping: settings.fdnDamping, geometryInfluence: settings.geometryInfluence
-    });
+    if (!fdnConfiguration || !fdnInjections.length) return stereo(fdnIrFrames);
     if (maximumVisualEvents > 0) {
-      const responseSeconds = fdnResponseSeconds(settings);
-      for (let cycle = 1; reflectionEvents.length < maximumVisualEvents; cycle += 1) {
-        let added = false;
-        configuration.delaySamples.forEach((delaySamples, line) => {
-          const seconds = cycle * delaySamples / sampleRate;
-          if (seconds >= responseSeconds || reflectionEvents.length >= maximumVisualEvents) return;
-          const reflector = reflectors[line % reflectors.length];
-          const levelDb = 20 * Math.log10(Math.max(1e-12, configuration.feedback[line] ** cycle));
-          if (levelDb < settings.cutoffDb) return;
+      for (const injection of fdnInjections) {
+        const delaySamples = fdnConfiguration.delaySamples[injection.line];
+        for (let cycle = 1; reflectionEvents.length < maximumVisualEvents; cycle += 1) {
+          const frame = injection.frame + cycle * delaySamples;
+          if (frame >= fdnIrFrames) break;
+          const levelDb = 20 * Math.log10(Math.max(1e-12, Math.abs(injection.gain) * fdnConfiguration.feedback[injection.line] ** cycle));
+          if (levelDb < settings.cutoffDb) break;
           reflectionEvents.push({
-            reflectorId: reflector.id,
-            previousReflectorId: reflectors[(line - 1 + reflectors.length) % reflectors.length].id,
-            seconds,
+            reflectorId: fdnConfiguration.lineDestinationIds[injection.line],
+            previousReflectorId: fdnConfiguration.lineReflectorIds[injection.line],
+            seconds: frame / sampleRate,
             levelDb,
-            bounce: cycle
+            bounce: cycle + 1
           });
-          added = true;
-        });
-        if (!added) break;
+        }
+        if (reflectionEvents.length >= maximumVisualEvents) break;
       }
+      reflectionEvents.sort((a, b) => a.seconds - b.seconds);
     }
-    if (!spatialAudio) configuration.outputGains = configuration.outputGains.map(() => [Math.SQRT1_2, Math.SQRT1_2]);
-    return colorFdnResponse(renderFdnImpulse(configuration, fdnIrFrames), configuration, reflectors, settings, sampleRate);
+    if (!spatialAudio) fdnConfiguration.outputGains = fdnConfiguration.outputGains.map(() => [Math.SQRT1_2, Math.SQRT1_2]);
+    return colorFdnResponse(renderFdnImpulse(fdnConfiguration, fdnIrFrames), fdnConfiguration, reflectors, settings, sampleRate);
   });
 
   const selectedLateIr = () => settings.lateMode === 'fdn' ? fdnLateIr() : convolutionLateIr();
@@ -275,13 +294,13 @@ export async function renderExportAudio({ source, listener, reflectors, heading,
   if (wanted.has('convolutionIr')) {
     const channels = stereo(convolutionIrFrames);
     addStereo(channels, earlyIr());
-    addStereo(channels, convolutionLateIr(), 0, lateFieldGain('convolution'));
+    addStereo(channels, convolutionLateIr(), 0, lateFieldGain('convolution', settings.lateFieldLevelDb));
     rendered.convolutionIr = channels;
   }
   if (wanted.has('fdnIr')) {
     const channels = stereo(fdnIrFrames);
     addStereo(channels, earlyIr());
-    addStereo(channels, fdnLateIr(), 0, lateFieldGain('fdn'));
+    addStereo(channels, fdnLateIr(), 0, lateFieldGain('fdn', settings.lateFieldLevelDb));
     rendered.fdnIr = channels;
   }
   if (wanted.has('direct')) {
@@ -296,7 +315,7 @@ export async function renderExportAudio({ source, listener, reflectors, heading,
   let late = null;
   if (wanted.has('late') || wanted.has('wet')) {
     late = await convolve(inputMono, selectedLateIr(), timelineFrames, sampleRate);
-    const gain = lateFieldGain(settings.lateMode);
+    const gain = lateFieldGain(settings.lateMode, settings.lateFieldLevelDb);
     for (const channel of late) for (let frame = 0; frame < channel.length; frame += 1) channel[frame] *= gain;
   }
   if (wanted.has('early')) rendered.early = early;

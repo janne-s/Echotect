@@ -191,7 +191,8 @@
         <label data-air-active><span>Air attenuation scale</span><span class="settings-control"><input id="setting-air-amount" type="range"><output id="setting-air-amount-value"></output></span></label>
         <label><span>Geometric spreading</span><span class="settings-control"><input id="setting-geometric-spreading" type="range"><output id="setting-geometric-spreading-value"></output></span></label>
         <label><span>Material absorption scale</span><span class="settings-control"><input id="setting-material-coloration" type="range"><output id="setting-material-coloration-value"></output></span></label>
-        <label><span>Late field</span><select id="setting-late-mode"><option value="convolution">Convolution</option><option value="fdn">Feedback network</option></select></label>
+        <label><span>Late field</span><select id="setting-late-mode"><option value="convolution">Sampled paths</option><option value="fdn">Feedback network</option></select></label>
+        <label><span>Late field level</span><span class="settings-control"><input id="setting-late-level" type="range"><output id="setting-late-level-value"></output></span></label>
         <label data-late-mode="convolution"><span>Response duration</span><span class="settings-control"><input id="setting-duration" type="range"><output id="setting-duration-value"></output></span></label>
         <label><span>Echo field surfaces</span><span class="settings-control"><input id="setting-surfaces" type="range"><output id="setting-surfaces-value"></output></span></label>
         <label data-late-mode="convolution"><span>Late path samples</span><span class="settings-control"><input id="setting-late-walks" type="range"><output id="setting-late-walks-value"></output></span></label>
@@ -216,7 +217,7 @@
       <label class="export-name"><span>Project name</span><input id="export-project-name" required maxlength="80"></label>
       <div class="export-list">
         <label><input type="checkbox" name="export-item" value="manifest" checked><span><strong>Project manifest</strong><small id="export-size-manifest"></small></span></label>
-        <label><input type="checkbox" name="export-item" value="convolution" checked><span><strong>Convolution IR</strong><small id="export-size-convolution"></small></span></label>
+        <label><input type="checkbox" name="export-item" value="convolution" checked><span><strong>Sampled paths IR</strong><small id="export-size-convolution"></small></span></label>
         <label><input type="checkbox" name="export-item" value="fdn" checked><span><strong>Rendered FDN IR</strong><small id="export-size-fdn"></small></span></label>
         <label><input type="checkbox" name="export-item" value="wet" checked><span><strong>Wet render</strong><small id="export-size-wet"></small></span></label>
         <label><input type="checkbox" name="export-item" value="stems" checked><span><strong>Aligned stems</strong><small id="export-size-stems"></small></span></label>

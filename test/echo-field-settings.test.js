@@ -14,6 +14,7 @@ test('every setting declares a usable range and an in-range fallback', () => {
 test('missing, malformed, and unusable values fall back to the defaults', () => {
   assert.deepEqual(normalizeEchoFieldSettings(undefined), DEFAULT_ECHO_FIELD_SETTINGS);
   assert.deepEqual(normalizeEchoFieldSettings({ durationSeconds: null, cutoffDb: 'x', lateMode: 'reverb' }), DEFAULT_ECHO_FIELD_SETTINGS);
+  assert.equal(DEFAULT_ECHO_FIELD_SETTINGS.lateFieldLevelDb, 2);
 });
 
 test('slider strings and out-of-range numbers are bounded to the declared range', () => {
