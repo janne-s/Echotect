@@ -549,8 +549,16 @@ input[type="range"]:focus-visible {
   color: var(--ink);
 }
 .heading-control {
-  margin: 0 0 10px;
+  margin: 0;
   padding: 5px 0;
+}
+.direct-path-metrics {
+  display: block;
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 .heading-readout {
   display: inline-flex;

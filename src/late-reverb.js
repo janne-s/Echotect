@@ -1,6 +1,6 @@
 import { geometryReferencePathMetres, maximumBandLevelDb, OCTAVE_BAND_HZ, pathBandGains, renderOctaveBandImpulse } from './acoustics.js';
 import { SOURCE_ONSET_GAIN } from './audio-model.js';
-import { propagationSeconds } from './geo.js';
+import { propagationSeconds, soundSpeedMetresPerSecond } from './geo.js';
 import { equalPowerGains, stereoPan } from './spatial.js';
 
 /** Each sampled arrival is spread over three samples so dense walks do not sound granular. */
@@ -50,6 +50,7 @@ export function synthesizeLateReverb({ sampleRate, source, listener, reflectors,
       ? new Set(reflector.visibleReflectorIds)
       : null]))
     : null;
+  const speedOfSound = soundSpeedMetresPerSecond(settings);
   const referencePathMetres = geometryReferencePathMetres(distanceMetres(source, listener),
     reflectors.map(reflector => distanceMetres(source, reflector) + distanceMetres(reflector, listener)));
   for (let walk = 0; walk < boundedWalkCount; walk += 1) {
@@ -57,7 +58,7 @@ export function synthesizeLateReverb({ sampleRate, source, listener, reflectors,
     const path = [current];
     let travelledMetres = distanceMetres(source, current);
     for (let bounce = 1; bounce <= maxBounces; bounce += 1) {
-      const arrivalSeconds = propagationSeconds(travelledMetres + distanceMetres(current, listener));
+      const arrivalSeconds = propagationSeconds(travelledMetres + distanceMetres(current, listener), speedOfSound);
       if (arrivalSeconds >= durationSeconds) break;
       const diffuseGain = diffuseEnergyRetention ** ((bounce - 1) / 2);
       const audibleBandGains = pathBandGains({
@@ -70,7 +71,7 @@ export function synthesizeLateReverb({ sampleRate, source, listener, reflectors,
         onArrival?.({
           reflectorId: current.id,
           previousReflectorId: path.at(-2)?.id ?? null,
-          seconds: propagationSeconds(travelledMetres),
+          seconds: propagationSeconds(travelledMetres, speedOfSound),
           levelDb: maximumBandLevelDb(audibleBandGains),
           bounce
         });

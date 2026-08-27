@@ -3,7 +3,7 @@ import { atmosphericBandGains, materialBandGains, OCTAVE_BAND_HZ, renderOctaveBa
 import { SOURCE_ONSET_GAIN } from './audio-model.js';
 import { exportFrameLayout, fdnResponseSeconds, lateFieldGain } from './export-layout.js';
 import { createFdnConfiguration, createFdnInjections } from './fdn.js';
-import { SPEED_OF_SOUND_METRES_PER_SECOND } from './geo.js';
+import { soundSpeedMetresPerSecond } from './geo.js';
 import { synthesizeLateReverb } from './late-reverb.js';
 import { equalPowerGains, stereoPan } from './spatial.js';
 import { WAV_SAMPLE_RATE } from './wav.js';
@@ -94,6 +94,7 @@ export function renderFdnImpulse(configuration, frameCount) {
 function colorFdnResponse(channels, configuration, reflectors, settings, sampleRate) {
   if (!reflectors.length) return channels;
   const meanDelayFrames = configuration.delaySamples.reduce((sum, value) => sum + value, 0) / configuration.delaySamples.length;
+  const speedOfSound = soundSpeedMetresPerSecond(settings);
   const material = OCTAVE_BAND_HZ.map((_, band) => reflectors.reduce((sum, reflector) =>
     sum + materialBandGains(reflector.effectiveMaterial ?? reflector.material, settings.materialColorationAmount ?? 1)[band], 0) / reflectors.length);
   return channels.map(channel => {
@@ -101,7 +102,7 @@ function colorFdnResponse(channels, configuration, reflectors, settings, sampleR
     for (let frame = 0; frame < channel.length; frame += 1) {
       if (!channel[frame]) continue;
       const elapsedFrames = Math.max(0, frame - (configuration.firstInjectionFrame ?? 0));
-      const pathMetres = elapsedFrames / sampleRate * SPEED_OF_SOUND_METRES_PER_SECOND;
+      const pathMetres = elapsedFrames / sampleRate * speedOfSound;
       const air = atmosphericBandGains(pathMetres, settings);
       const bounces = elapsedFrames / Math.max(1, meanDelayFrames);
       for (let band = 0; band < bands.length; band += 1) bands[band][frame] = channel[frame] * air[band] * material[band] ** bounces;
@@ -213,9 +214,10 @@ export async function renderExportAudio({ source, listener, reflectors, heading,
   const spatialAudio = settings.spatialAudio !== false;
   const earlyEvents = suppliedEarlyEvents ?? createEarlyArrivalEvents({ source, listener, reflectors, settings, sampleRate });
   const directEvent = createDirectArrivalEvent({ source, listener, settings, sampleRate });
+  const speedOfSound = soundSpeedMetresPerSecond(settings);
   const reflectionEvents = [];
   const fdnConfiguration = reflectors.length >= LATE_FIELD_MINIMUM_REFLECTORS ? createFdnConfiguration({
-    sampleRate, source, listener, reflectors, heading, distanceMetres, tailSeconds: settings.fdnTailSeconds,
+    sampleRate, source, listener, reflectors, heading, distanceMetres, speedOfSound, tailSeconds: settings.fdnTailSeconds,
     density: settings.fdnDensity, damping: settings.fdnDamping, geometryInfluence: settings.geometryInfluence,
     buildingOcclusion: settings.buildingOcclusion
   }) : null;

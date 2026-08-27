@@ -10,7 +10,15 @@ const METRES_PER_DEGREE_LONGITUDE_AT_EQUATOR = 111320;
 
 export const toRadians = degrees => degrees * Math.PI / 180;
 
-export const propagationSeconds = pathMetres => pathMetres / SPEED_OF_SOUND_METRES_PER_SECOND;
+/** Approximation for humid air near atmospheric pressure; custom atmosphere affects timing. */
+export function soundSpeedMetresPerSecond(settings = {}) {
+  if (settings.airMode === 'off') return SPEED_OF_SOUND_METRES_PER_SECOND;
+  const temperatureCelsius = settings.airMode === 'custom' ? settings.airTemperatureCelsius ?? 20 : 20;
+  const relativeHumidityPercent = settings.airMode === 'custom' ? settings.airHumidityPercent ?? 50 : 50;
+  return 331.3 + .606 * temperatureCelsius + .0124 * relativeHumidityPercent;
+}
+
+export const propagationSeconds = (pathMetres, speedOfSound = SPEED_OF_SOUND_METRES_PER_SECOND) => pathMetres / speedOfSound;
 
 export const isValidCoordinate = point =>
   Number.isFinite(point?.latitude) && Math.abs(point.latitude) <= 90 &&
@@ -78,9 +86,9 @@ export function distanceMetres(a, b) {
   return 2 * EARTH_RADIUS_METRES * Math.asin(Math.sqrt(haversine));
 }
 
-export function directSoundMetrics(source, listener) {
+export function directSoundMetrics(source, listener, speedOfSound = SPEED_OF_SOUND_METRES_PER_SECOND) {
   const pathMetres = distanceMetres(source, listener);
-  return { pathMetres, propagationSeconds: propagationSeconds(pathMetres) };
+  return { pathMetres, propagationSeconds: propagationSeconds(pathMetres, speedOfSound) };
 }
 
 export const isDistinctPath = pathMetres => pathMetres > COINCIDENT_DISTANCE_METRES;
@@ -89,13 +97,13 @@ export function hasDistinctDirectArrival(source, listener) {
   return isDistinctPath(distanceMetres(source, listener));
 }
 
-export function reflectionMetrics(source, listener, reflector) {
+export function reflectionMetrics(source, listener, reflector, speedOfSound = SPEED_OF_SOUND_METRES_PER_SECOND) {
   const listenerLegMetres = distanceMetres(listener, reflector);
   const pathMetres = distanceMetres(source, reflector) + listenerLegMetres;
-  return { listenerLegMetres, pathMetres, propagationSeconds: propagationSeconds(pathMetres) };
+  return { listenerLegMetres, pathMetres, propagationSeconds: propagationSeconds(pathMetres, speedOfSound) };
 }
 
-export function reflectionPathMetrics(source, listener, reflectors) {
+export function reflectionPathMetrics(source, listener, reflectors, speedOfSound = SPEED_OF_SOUND_METRES_PER_SECOND) {
   let pathMetres = 0;
   let previous = source;
   reflectors.forEach(reflector => {
@@ -103,5 +111,5 @@ export function reflectionPathMetrics(source, listener, reflectors) {
     previous = reflector;
   });
   pathMetres += distanceMetres(previous, listener);
-  return { pathMetres, propagationSeconds: propagationSeconds(pathMetres) };
+  return { pathMetres, propagationSeconds: propagationSeconds(pathMetres, speedOfSound) };
 }

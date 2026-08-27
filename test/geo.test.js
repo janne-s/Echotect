@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { directSoundMetrics, distanceMetres, hasDistinctDirectArrival, parseCoordinates, reflectionMetrics } from '../src/geo.js';
+import { directSoundMetrics, distanceMetres, hasDistinctDirectArrival, parseCoordinates, reflectionMetrics, soundSpeedMetresPerSecond } from '../src/geo.js';
 
 test('parses pasted decimal coordinates', () => {
   assert.deepEqual(parseCoordinates('60.1699, 24.9384'), { latitude: 60.1699, longitude: 24.9384 });
@@ -45,6 +45,15 @@ test('a place name is not read as a coordinate', () => {
 test('distance is zero for the same coordinate', () => {
   const point = { latitude: 60, longitude: 24 };
   assert.equal(distanceMetres(point, point), 0);
+});
+
+test('custom atmosphere temperature changes the speed of sound and propagation time', () => {
+  const coldSpeed = soundSpeedMetresPerSecond({ airMode: 'custom', airTemperatureCelsius: 0, airHumidityPercent: 50 });
+  const warmSpeed = soundSpeedMetresPerSecond({ airMode: 'custom', airTemperatureCelsius: 40, airHumidityPercent: 50 });
+  assert.ok(warmSpeed > coldSpeed);
+  const source = { latitude: 0, longitude: 0 };
+  const listener = { latitude: 0, longitude: 0.003 };
+  assert.ok(directSoundMetrics(source, listener, warmSpeed).propagationSeconds < directSoundMetrics(source, listener, coldSpeed).propagationSeconds);
 });
 
 test('343 metre reflected path is approximately one second', () => {

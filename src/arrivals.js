@@ -1,6 +1,6 @@
 import { bandLevelDb, geometryReferencePathMetres, maximumBandLevelDb, pathBandGains, pathFilter } from './acoustics.js';
 import { buildEarlyReflectionPaths, reflectionBranchGain, SOURCE_ONSET_GAIN } from './audio-model.js';
-import { directSoundMetrics, isDistinctPath, reflectionPathMetrics } from './geo.js';
+import { directSoundMetrics, isDistinctPath, reflectionPathMetrics, soundSpeedMetresPerSecond } from './geo.js';
 import { arrivalAzimuthDegrees } from './spatial.js';
 import { WAV_SAMPLE_RATE } from './wav.js';
 
@@ -10,7 +10,7 @@ import { WAV_SAMPLE_RATE } from './wav.js';
  * Distances are metres, times seconds, levels decibels, azimuths compass degrees.
  */
 export function createDirectArrivalEvent({ source, listener, settings = {}, sampleRate = WAV_SAMPLE_RATE }) {
-  const metrics = directSoundMetrics(source, listener);
+  const metrics = directSoundMetrics(source, listener, soundSpeedMetresPerSecond(settings));
   const distinct = isDistinctPath(metrics.pathMetres);
   const bandGains = distinct
     ? pathBandGains({ pathMetres: metrics.pathMetres, referencePathMetres: metrics.pathMetres, settings, sourceGain: SOURCE_ONSET_GAIN })
@@ -30,11 +30,12 @@ export function createDirectArrivalEvent({ source, listener, settings = {}, samp
 }
 
 export function createEarlyArrivalEvents({ source, listener, reflectors, settings, sampleRate = WAV_SAMPLE_RATE }) {
+  const speedOfSound = soundSpeedMetresPerSecond(settings);
   const directPathMetres = directSoundMetrics(source, listener).pathMetres;
   const firstReflectionPathMetres = reflectors.map(reflector => reflectionPathMetrics(source, listener, [reflector]).pathMetres);
   const referencePathMetres = geometryReferencePathMetres(directPathMetres, firstReflectionPathMetres);
   return buildEarlyReflectionPaths(reflectors, settings).flatMap(path => {
-    const metrics = reflectionPathMetrics(source, listener, path);
+    const metrics = reflectionPathMetrics(source, listener, path, speedOfSound);
     const branchGain = reflectionBranchGain(reflectors.length, path.length);
     const bandGains = pathBandGains({ pathMetres: metrics.pathMetres, referencePathMetres, reflectors: path, settings, sourceGain: SOURCE_ONSET_GAIN * branchGain });
     const gain = bandGains[3];

@@ -38,7 +38,7 @@ function occludedFeedbackMatrix(lineReflectorIds, lineDestinationIds, reflectors
   });
 }
 
-export function createFdnConfiguration({ sampleRate, listener, reflectors, heading = 0, distanceMetres, tailSeconds = 8, density = .7, damping = .55, geometryInfluence = .7, buildingOcclusion = false }) {
+export function createFdnConfiguration({ sampleRate, listener, reflectors, heading = 0, distanceMetres, speedOfSound, tailSeconds = 8, density = .7, damping = .55, geometryInfluence = .7, buildingOcclusion = false }) {
   const lineReflectors = BASE_DELAYS_MS.map((_, index) => reflectors.length > BASE_DELAYS_MS.length
     ? reflectors[Math.floor(index * reflectors.length / BASE_DELAYS_MS.length)]
     : reflectors[index % Math.max(1, reflectors.length)] ?? null);
@@ -46,7 +46,7 @@ export function createFdnConfiguration({ sampleRate, listener, reflectors, headi
     ? transitionReflector(reflectors, reflector, reflectors.indexOf(reflector), buildingOcclusion)
     : null);
   const geometryDelaySeconds = lineReflectors.map((reflector, index) => reflector && lineDestinations[index]
-    ? propagationSeconds(distanceMetres(reflector, lineDestinations[index]))
+    ? propagationSeconds(distanceMetres(reflector, lineDestinations[index]), speedOfSound)
     : BASE_DELAYS_MS[index] / 1000);
   const delaySamples = BASE_DELAYS_MS.map((milliseconds, index) => {
     const genericSeconds = milliseconds / 1000;

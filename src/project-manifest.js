@@ -1,6 +1,6 @@
 import { createDirectArrivalEvent, createEarlyArrivalEvents } from './arrivals.js';
 import { exportFrameLayout, lateFieldGain } from './export-layout.js';
-import { DISTANCE_METHOD, EARTH_RADIUS_METRES, SPEED_OF_SOUND_METRES_PER_SECOND } from './geo.js';
+import { DISTANCE_METHOD, EARTH_RADIUS_METRES, soundSpeedMetresPerSecond } from './geo.js';
 import { WAV_CHANNELS, WAV_FORMAT, WAV_SAMPLE_RATE } from './wav.js';
 
 export const PROJECT_FORMAT = 'echotect-project';
@@ -9,6 +9,7 @@ export const PROJECT_SCHEMA_VERSION = '1.0.0';
 const point = value => ({ latitudeDegrees: value.latitude, longitudeDegrees: value.longitude });
 
 export function createProjectManifest({ projectId, projectName, createdAt, source, listener, reflectors, globalReflectionLevelDb, globalMaterial, pointsLinked, heading, echoField, echoFieldSettings, inputName, inputDurationSeconds }) {
+  const speedOfSound = soundSpeedMetresPerSecond(echoFieldSettings);
   const direct = createDirectArrivalEvent({ source, listener, settings: echoFieldSettings });
   const earlyPaths = createEarlyArrivalEvents({ source, listener, reflectors, settings: echoFieldSettings });
   const inputFrames = Math.ceil(inputDurationSeconds * WAV_SAMPLE_RATE);
@@ -23,7 +24,7 @@ export function createProjectManifest({ projectId, projectName, createdAt, sourc
     schemaVersion: PROJECT_SCHEMA_VERSION,
     project: { id: projectId, name: projectName, createdAt, exportedAt: new Date().toISOString() },
     units: { coordinates: 'decimal-degrees-wgs84', distance: 'metres', time: 'seconds', frequency: 'hertz', level: 'decibels-relative-amplitude', audioSample: 'float-full-scale', angle: 'compass-degrees' },
-    propagation: { distanceMethod: DISTANCE_METHOD, earthRadiusMetres: EARTH_RADIUS_METRES, speedOfSoundMetresPerSecond: SPEED_OF_SOUND_METRES_PER_SECOND, geometricSpreadingReference: 'direct-path-or-shortest-first-reflection', atmosphericAbsorptionMethod: 'ISO 9613-1:1993' },
+    propagation: { distanceMethod: DISTANCE_METHOD, earthRadiusMetres: EARTH_RADIUS_METRES, speedOfSoundMetresPerSecond: speedOfSound, geometricSpreadingReference: 'direct-path-or-shortest-first-reflection', atmosphericAbsorptionMethod: 'ISO 9613-1:1993' },
     geometry: {
       source: point(source), listener: { ...point(listener), headingDegrees: heading }, pointsLinked,
       reflectors: reflectors.map(reflector => ({

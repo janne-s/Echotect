@@ -3,7 +3,7 @@ import { SOURCE_ONSET_GAIN } from './audio-model.js';
 import { DEFAULT_ECHO_FIELD_SETTINGS, ECHO_FIELD_SETTINGS, normalizeEchoFieldSettings } from './echo-field-settings.js';
 import { edgeKey, reflectionField, reflectorVisibilityGraph, wallReflectionCandidate } from './echo-geometry.js';
 import { exportFrameLayout } from './export-layout.js';
-import { distanceMetres, isValidCoordinate, metresPerDegreeLatitude, metresPerDegreeLongitude, parseCoordinates, reflectionMetrics, SPEED_OF_SOUND_METRES_PER_SECOND } from './geo.js';
+import { distanceMetres, isValidCoordinate, metresPerDegreeLatitude, metresPerDegreeLongitude, parseCoordinates, reflectionMetrics, soundSpeedMetresPerSecond } from './geo.js';
 import { IMAGE_OPACITY_RANGE, IMAGE_WIDTH_RANGE, imageCoordinates, transformImageEdge, transformImagePoint } from './image-background.js';
 import { effectiveMaterial, MATERIAL_LABELS, normalizeFacadeMaterial } from './materials.js';
 import { addStereo, renderExportAudio, resampleToMono } from './offline-export.js';
@@ -259,6 +259,7 @@ function syncWorkspaceControls() {
   $('#heading-arrow').style.transform = `rotate(${state.settings.heading}deg)`;
   $('#arrivals-only').checked = state.settings.arrivalsOnly;
   $('#panning-mode').value = state.settings.panningMode;
+  updateDirectPathMetrics();
   syncPlayButton();
 }
 
@@ -684,6 +685,12 @@ function formatDistance(metres) {
   return metres >= 1000 ? `${(metres / 1000).toFixed(2)} km` : `${metres.toFixed(1)} m`;
 }
 
+function updateDirectPathMetrics() {
+  const metres = distanceMetres(state.source, state.listener);
+  const seconds = metres / soundSpeedMetresPerSecond(state.settings.echoField);
+  $('#direct-path-metrics').textContent = `Source → Listener: ${formatDistance(metres)} · ${seconds.toFixed(3)} s`;
+}
+
 /** Card elements that change while the geometry or levels change, kept per reflector id. */
 const reflectionCards = new Map();
 
@@ -737,7 +744,7 @@ function updateReflectionMetrics() {
   state.reflectors.forEach(reflector => {
     const card = reflectionCards.get(reflector.id);
     if (!card) return;
-    const metrics = reflectionMetrics(state.source, state.listener, reflector);
+    const metrics = reflectionMetrics(state.source, state.listener, reflector, soundSpeedMetresPerSecond(state.settings.echoField));
     card.listenerLeg.textContent = formatDistance(metrics.listenerLegMetres);
     card.delay.textContent = `${metrics.propagationSeconds.toFixed(3)} s`;
   });
@@ -765,6 +772,7 @@ function syncLinkControls() {
 /** Moving geometry: routes, derived readouts, and a scheduled save. No card is rebuilt. */
 function renderGeometry() {
   syncRoutes();
+  updateDirectPathMetrics();
   updateReflectionMetrics();
   scheduleEchoFieldUpdate();
   scheduleSave();
@@ -1171,6 +1179,7 @@ $('#echo-settings-dialog').addEventListener('close', event => {
   });
   scheduleSave();
   syncPlayButton();
+  renderGeometry();
   if (echoFieldEnabled) rebuildEchoField();
 });
 
@@ -1645,7 +1654,7 @@ function syncPlayButton() {
   const button = $('#play-button');
   if (!button) return;
   if (activePlayback) button.textContent = 'Stop';
-  else if (renderingPlayback) button.textContent = 'Rendering…';
+  else if (renderingPlayback) button.textContent = 'Rendering';
   else if (state.settings.playbackMode === 'rendered') button.textContent = renderedPlayback ? 'Play render' : 'Render';
   else button.textContent = 'Play impulse';
   button.disabled = renderingPlayback;
@@ -1770,7 +1779,6 @@ function animateReflectionPulses(events, reflectors, lateEvents = [], durationSe
     .sort((a, b) => b.levelDb - a.levelDb)
     .slice(0, MAXIMUM_VISUALIZED_PATHS);
   const pulses = [];
-  const seen = new Set();
   for (const event of strongest) {
     let previous = state.source;
     let delaySeconds = 0;
@@ -1778,17 +1786,15 @@ function animateReflectionPulses(events, reflectors, lateEvents = [], durationSe
       const point = pointsById.get(event.reflectorIds[bounce]);
       if (!point) continue;
       const fromPoint = previous;
-      delaySeconds += distanceMetres(previous, point) / SPEED_OF_SOUND_METRES_PER_SECOND;
-      const key = `${point.id}:${Math.round(delaySeconds * 30)}`;
+      delaySeconds += distanceMetres(previous, point) / soundSpeedMetresPerSecond(state.settings.echoField);
       previous = point;
-      if (seen.has(key)) continue;
-      seen.add(key);
       pulses.push({
         point,
         fromPoint,
         delaySeconds,
         manual: manualReflectorIds.has(point.id),
-        opacity: Math.max(.18, Math.min(.78, .18 + (event.levelDb + 90) / 120)) / (1 + bounce * .06)
+        levelDb: event.levelDb - 20 * Math.log10(1 + bounce * .06),
+        maximumOpacity: .78
       });
       if (pulses.length >= MAXIMUM_REFLECTION_PULSES) break;
     }
@@ -1798,15 +1804,13 @@ function animateReflectionPulses(events, reflectors, lateEvents = [], durationSe
     if (pulses.length >= MAXIMUM_REFLECTION_PULSES) break;
     const point = pointsById.get(event.reflectorId);
     if (!point) continue;
-    const key = `${point.id}:${Math.round(event.seconds * 30)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
     pulses.push({
       point,
       fromPoint: pointsById.get(event.previousReflectorId) ?? state.source,
       delaySeconds: event.seconds,
       manual: manualReflectorIds.has(point.id),
-      opacity: Math.max(.12, Math.min(.58, .12 + (event.levelDb + 90) / 170))
+      levelDb: event.levelDb,
+      maximumOpacity: .58
     });
   }
   if (!pulses.length) return;
@@ -1831,6 +1835,7 @@ function animateReflectionPulses(events, reflectors, lateEvents = [], durationSe
       return;
     }
     while (firstActive < pulses.length && elapsed - pulses[firstActive].delaySeconds > .48) firstActive += 1;
+    const activeByReflector = new Map();
     for (let index = firstActive; index < pulses.length; index += 1) {
       const pulse = pulses[index];
       const age = (elapsed - pulse.delaySeconds) / .48;
@@ -1845,9 +1850,20 @@ function animateReflectionPulses(events, reflectors, lateEvents = [], durationSe
         const length = Math.hypot(dx, dy);
         if (length > 0) position = { x: center.x - dx / length * 11, y: center.y - dy / length * 11 };
       }
-      const alpha = Math.sin(Math.PI * age) * pulse.opacity;
+      const envelope = Math.sin(Math.PI * age);
+      const energy = 10 ** (pulse.levelDb / 10) * envelope ** 2;
+      const active = activeByReflector.get(pulse.point.id) ?? { energy: 0, maximumOpacity: 0, position, strongestEnergy: 0 };
+      active.energy += energy;
+      active.maximumOpacity = Math.max(active.maximumOpacity, pulse.maximumOpacity);
+      if (energy > active.strongestEnergy) Object.assign(active, { position, strongestEnergy: energy });
+      activeByReflector.set(pulse.point.id, active);
+    }
+    for (const active of activeByReflector.values()) {
+      const combinedLevelDb = 10 * Math.log10(Math.max(Number.MIN_VALUE, active.energy));
+      const alpha = Math.max(0, Math.min(active.maximumOpacity, (combinedLevelDb + 90) / 90 * active.maximumOpacity));
+      if (alpha <= 0) continue;
       context.beginPath();
-      context.arc(position.x, position.y, 2.5, 0, Math.PI * 2);
+      context.arc(active.position.x, active.position.y, 2.5, 0, Math.PI * 2);
       context.fillStyle = `rgba(255, 255, 255, ${alpha})`;
       context.fill();
     }
@@ -2262,7 +2278,8 @@ $('#reset-audio').addEventListener('click', async event => {
   audioContext = null;
   button.disabled = true;
   button.setAttribute('aria-busy', 'true');
-  button.textContent = 'Recovering…';
+  button.setAttribute('aria-label', 'Recovering audio');
+  button.textContent = '';
 
   let replacementContext = null;
   let resumeReplacement = null;
@@ -2293,6 +2310,7 @@ $('#reset-audio').addEventListener('click', async event => {
   } finally {
     button.disabled = false;
     button.removeAttribute('aria-busy');
+    button.removeAttribute('aria-label');
     button.textContent = 'Recover audio';
   }
 });

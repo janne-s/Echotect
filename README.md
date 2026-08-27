@@ -57,9 +57,11 @@ only the background-image controls are exclusive to Image mode.
 - **Point bounces** — Limits how many times a point-reflection path can bounce.
 - **Point path limit** — Limits the number of point-reflection paths used.
 - **Atmosphere** — Uses standard air conditions, custom conditions, or disables
-  air absorption.
-- **Temperature** — Sets the air temperature for Custom atmosphere mode.
-- **Relative humidity** — Sets the humidity for Custom atmosphere mode.
+  atmospheric timing and absorption adjustments.
+- **Temperature** — Sets the air temperature for Custom atmosphere mode and
+  changes the speed of sound used for every propagation time.
+- **Relative humidity** — Sets the humidity for Custom atmosphere mode, including
+  its smaller contribution to the speed of sound.
 - **Air pressure** — Sets the air pressure for Custom atmosphere mode.
 - **Air attenuation scale** — Adjusts the strength of air absorption; `1.00× ISO`
   is the normal model and `0.00×` disables its effect.
