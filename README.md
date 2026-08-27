@@ -1,9 +1,10 @@
 # Echotect: Turn your hood into a delay
 
 Echotect turns real-world map geometry into musical delay structures. A Source,
-Listener, and Reflectors define propagation paths that can be auditioned in the
-browser, saved as an editable project, exported as audio, or opened in the
-optional Max for Live device.
+Listener, and Reflectors define propagation paths, while the Echo field derives
+additional Reflectors from nearby surfaces within the same model. The result can
+be auditioned in the browser, saved as an editable project, or exported as audio
+and portable project data for other applications.
 
 See it live: [**https://janne-s.github.io/Echotect/**](https://janne-s.github.io/Echotect/)
 
@@ -11,38 +12,25 @@ See it live: [**https://janne-s.github.io/Echotect/**](https://janne-s.github.io
 
 ## How it works
 
-Place a Source, Listener, and Reflectors on the map. Echotect uses the resulting
-distances to time the direct sound and reflections. Longer paths arrive later
-and lose more level and high-frequency energy. Reflector materials affect which
-frequencies are absorbed, while the selected spatial mode controls how the
-result is heard in the browser.
-
-Point Reflectors create distinct echoes and can reflect sound between one
-another. The Echo field uses nearby building surfaces to create a denser late
-response. Projects remain editable, and audio can be exported as impulse
-responses, a wet render, or aligned stems.
+Place a Source and Listener, then add Reflectors directly or derive them from
+nearby surfaces with the Echo field. All Reflectors participate in the same path
+model, including reflections between surfaces. Longer paths arrive later and
+lose more level and high-frequency energy; materials shape their absorption,
+and the selected spatial mode controls how the result is heard in the browser.
+Projects remain editable, and audio can be exported as impulse responses, a wet
+render, or aligned stems.
 
 Use **Save** to store the editable project as a separate file and **Open** to
 restore its map geometry, reflection field, materials, and listening settings.
-Audio and Max for Live exports remain available through **Export**.
+Audio and project manifest exports remain available through **Export**.
 
 Use **Image** to replace the map with a PNG, JPEG, or WebP sketch. Calibrate its
 scale from a known distance in the image, rotate it as needed, and place Source,
 Listener, and Point Reflectors on top. The image is included in the saved project.
 
-In Image mode, use the polygon tool to add a Structure. A new Structure starts as
-a four-sided rectangle. Drag its area to move it, an edge to move that side, a
-vertex handle to reshape it. Clicking an edge adds a vertex; double-clicking a
-vertex removes it while at least three remain. The polygon is sized and shaped
-directly on the map. Echo field derives reflective walls from its edges, so it can
-be used without loading building data. Structures remain editable in a saved
-project.
-
-The polygon tool is also available in Map mode as the only bottom-centre tool.
-It opens the Structure panel; **Create structure** adds a polygon and the compact
-trash button removes the selected polygon.
-Existing Structures can be selected, reshaped, moved, or deleted in either mode;
-only the background-image controls are exclusive to Image mode.
+Structures are editable polygons available in both Map and Image modes. Their
+edges provide reflective surfaces to the Echo field and remain editable in saved
+projects.
 
 ## Echo field settings
 
@@ -88,11 +76,11 @@ only the background-image controls are exclusive to Image mode.
 
 ## Max for Live
 
-[Echotect Field](max-for-live/README.md) brings an Echotect project into Ableton
-Live. Export a JSON project manifest from Echotect and import it into the device
-to recreate its direct sound and reflection delays. The device provides
-real-time controls for timing, direction, width, path count, and the balance
-between the input and reflected sound.
+[Echotect Field](max-for-live/README.md) is one consumer of Echotect's JSON
+project manifest. It brings the geometry into Ableton Live to recreate its
+direct sound and reflection delays, with real-time controls for timing,
+direction, width, path count, and the balance between the input and reflected
+sound.
 
 The Max for Live device is functional, but still rudimentary and under
 development.
