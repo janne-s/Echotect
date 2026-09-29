@@ -209,11 +209,11 @@ const once = build => {
  * Renders the requested outputs and nothing else: a preview that only needs the wet mix never pays
  * for the impulse responses or the stems, and a convolution late field never renders the FDN.
  */
-export async function renderExportAudio({ source, listener, reflectors, heading, settings, distanceMetres, inputMono, sampleRate = WAV_SAMPLE_RATE, outputs = EXPORT_OUTPUTS, earlyEvents: suppliedEarlyEvents = null, maximumVisualEvents = 0 }) {
+export async function renderExportAudio({ source, listener, reflectors, heading, settings, distanceMetres, directOccluded = false, inputMono, sampleRate = WAV_SAMPLE_RATE, outputs = EXPORT_OUTPUTS, earlyEvents: suppliedEarlyEvents = null, maximumVisualEvents = 0 }) {
   const wanted = new Set(outputs);
   const spatialAudio = settings.spatialAudio !== false;
-  const earlyEvents = suppliedEarlyEvents ?? createEarlyArrivalEvents({ source, listener, reflectors, settings, sampleRate });
-  const directEvent = createDirectArrivalEvent({ source, listener, settings, sampleRate });
+  const earlyEvents = suppliedEarlyEvents ?? createEarlyArrivalEvents({ source, listener, reflectors, settings, sampleRate, distanceMetres });
+  const directEvent = createDirectArrivalEvent({ source, listener, settings, sampleRate, distanceMetres, occluded: directOccluded });
   const speedOfSound = soundSpeedMetresPerSecond(settings);
   const reflectionEvents = [];
   const fdnConfiguration = reflectors.length >= LATE_FIELD_MINIMUM_REFLECTORS ? createFdnConfiguration({

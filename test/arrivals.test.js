@@ -41,3 +41,22 @@ test('point modes do not alter discrete geometry, levels, or arrival times', () 
   assert.deepEqual(persistent.map(event => event.propagationSeconds), geometric.map(event => event.propagationSeconds));
   assert.deepEqual(persistent.map(event => event.bandGains), geometric.map(event => event.bandGains));
 });
+
+test('an occluded direct path keeps its time but carries no sound', () => {
+  const direct = createDirectArrivalEvent({ source: point, listener: distant, occluded: true });
+  const open = createDirectArrivalEvent({ source: point, listener: distant });
+  assert.equal(direct.frame, open.frame);
+  assert.equal(direct.gain, 0);
+  assert.equal(direct.levelDb, null);
+  assert.ok(direct.filter.every(sample => sample === 0));
+  assert.deepEqual(monitorArrivalPlan(direct, false), { playOnset: true, playDirectArrival: false });
+});
+
+test('arrival distances follow the supplied distance method', () => {
+  const placed = value => ({ ...value, positionMetres: { x: 0, y: 0, z: value === point ? 0 : 686 } });
+  const straightUp = (a, b) => Math.abs(b.positionMetres.z - a.positionMetres.z);
+  const direct = createDirectArrivalEvent({ source: placed(point), listener: placed(distant), distanceMetres: straightUp, settings: { airMode: 'off' } });
+  assert.equal(direct.pathMetres, 686);
+  assert.equal(direct.propagationSeconds, 2);
+  assert.equal(direct.arrivalElevationDegrees, -90);
+});

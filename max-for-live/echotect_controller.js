@@ -25,6 +25,14 @@ var controls = {
     reflectionCount: 0
 };
 
+function directCount() {
+    return paths.length && paths[0].kind === "direct" ? 1 : 0;
+}
+
+function reflectionTotal() {
+    return paths.length - directCount();
+}
+
 function cleanPath(value) {
     var result = String(value);
     if (result.charAt(0) === '"' && result.charAt(result.length - 1) === '"') result = result.slice(1, -1);
@@ -48,12 +56,12 @@ function read() {
         var importedPaths = EchotectModel.pathsFromManifest(manifest);
         paths = importedPaths.slice(0, EchotectModel.MAX_VOICES);
         omittedPathCount = importedPaths.length - paths.length;
-        controls.reflectionCount = paths.length - 1;
+        controls.reflectionCount = reflectionTotal();
         controls.headingDegrees = manifest.geometry.listener.headingDegrees;
         outlet(3, ["heading", controls.headingDegrees]);
         outlet(3, ["project", manifest.project.name]);
-        outlet(3, ["paths_value", paths.length > 1 ? controls.reflectionCount / (paths.length - 1) : 0]);
-        outlet(3, ["paths_label", controls.reflectionCount, "/", paths.length - 1]);
+        outlet(3, ["paths_value", reflectionTotal() > 0 ? controls.reflectionCount / reflectionTotal() : 0]);
+        outlet(3, ["paths_label", controls.reflectionCount, "/", reflectionTotal()]);
         emitAll(true, true);
         if (omittedPathCount > 0) {
             var importedEarlyCount = manifest.derived.earlyPaths.length;
@@ -62,8 +70,8 @@ function read() {
             post("Echotect warning: " + capacityMessage + "\n");
             outlet(0, ["warning", capacityMessage]);
         } else {
-            post("Echotect: loaded " + manifest.project.name + " with " + (paths.length - 1) + " reflections\n");
-            outlet(0, ["loaded", manifest.project.name, paths.length - 1]);
+            post("Echotect: loaded " + manifest.project.name + " with " + reflectionTotal() + " reflections\n");
+            outlet(0, ["loaded", manifest.project.name, reflectionTotal()]);
         }
     } catch (error) {
         post("Echotect import error: " + error.message + "\n");
@@ -85,7 +93,8 @@ function emitAll(resizeDelayMemory, updateMuteState) {
         var config = EchotectModel.renderConfig(paths[i], controls);
         var bank = Math.floor(i / VOICES_PER_BANK) + 1;
         var localVoice = i % VOICES_PER_BANK + 1;
-        var active = paths[i].kind === "direct" || i <= controls.reflectionCount;
+        var reflectionOrdinal = i - directCount() + 1;
+        var active = paths[i].kind === "direct" || reflectionOrdinal <= controls.reflectionCount;
         if (updateMuteState) outlet(1, ["bank", bank, "mute", localVoice, active ? 0 : 1]);
         if (!active) continue;
         outlet(1, ["bank", bank, "target", localVoice]);
@@ -112,9 +121,9 @@ function reflections_level(value) { setControl("reflectionsLevelDb", Number(valu
 function reflection_density(value) {
     if (!manifest) return;
     var normalized = Math.max(0, Math.min(1, Number(value)));
-    controls.reflectionCount = Math.round((paths.length - 1) * normalized);
+    controls.reflectionCount = Math.round(reflectionTotal() * normalized);
     outlet(3, ["paths_value", normalized]);
-    outlet(3, ["paths_label", controls.reflectionCount, "/", paths.length - 1]);
+    outlet(3, ["paths_label", controls.reflectionCount, "/", reflectionTotal()]);
     emitAll(false, true);
 }
 function bang() { emitAll(false, false); }

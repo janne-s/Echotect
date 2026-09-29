@@ -12,6 +12,10 @@ import { boundedValue } from './range.js';
 import { hrtfPosition } from './spatial.js';
 import { createRectangleVertices, insertVertex, moveEdgeVertices, pointInStructureSpace, removeVertex, structureRing, structureVertices, structureWalls, validStructure } from './structures.js';
 import { createWorkspaceProject, parseWorkspaceProject, REFLECTION_LEVEL_RANGE } from './workspace-project.js';
+import { captureTerrain, MAXIMUM_CAPTURE_EXTENT_METRES, MINIMUM_CAPTURE_EXTENT_METRES, TERRAIN_PROVIDER, validCaptureBounds } from './terrain-tiles.js';
+import { EXTERIOR_HEIGHT_RANGE, floorRange, GROUND_REFLECTION_RANGE, normalizeTerrainSpace, parseTerrainSpace, placePoint, sectionProfile, segmentClear, serializeTerrainSpace, tallestCavityPoint, TERRAIN_SCALE_RANGE, terrainDistanceMetres, terrainFrame, terrainHeightMetres } from './terrain-space.js';
+import { captureSpaceScene, DEFAULT_SPACE_VIEW, drawSection, drawSpace, paintSpacePulses } from './space-view.js';
+import { floorOutlineGeoJson, footprintCoordinates, footprintGeoJson, hillshadeDataUrl } from './terrain-view.js';
 import { encodeFloat32Wav, wavByteLength, WAV_SAMPLE_RATE } from './wav.js';
 import { zipStore } from './zip.js';
 
@@ -46,6 +50,9 @@ const MAXIMUM_LATE_REFLECTION_PULSES = 4000;
 const AUDIO_RECOVERY_OPERATION_TIMEOUT_MS = 1200;
 const AUDIO_RECOVERY_CLOCK_TEST_MS = 250;
 const AUDIO_RECOVERY_MINIMUM_CLOCK_ADVANCE_SECONDS = .05;
+const TERRAIN_IMAGE_SOURCE_ID = 'terrain-hillshade';
+const TERRAIN_BUILD_DELAY_MS = 80;
+const TERRAIN_HILLSHADE_OPACITY = .8;
 
 const validEdge = edge => Array.isArray(edge) && edge.length === 2
   && edge.every(point => Array.isArray(point) && point.length >= 2 && point.every(Number.isFinite));
@@ -65,11 +72,18 @@ const newProject = () => ({ id: crypto.randomUUID(), name: DEFAULT_PROJECT_NAME,
 function defaultWorkspace() {
   return {
     project: newProject(),
-    source: { latitude: 60.16955, longitude: 24.9369 },
-    listener: { latitude: 60.1707, longitude: 24.9410 },
+    activeSpace: 'map',
+    mapPlacement: {
+      source: { latitude: 60.16955, longitude: 24.9369 },
+      listener: { latitude: 60.1707, longitude: 24.9410 },
+      pointsLinked: false
+    },
+    terrainPlacements: null,
     reflectors: [{ id: crypto.randomUUID(), latitude: 60.1721, longitude: 24.9384, levelDb: REFLECTION_LEVEL_RANGE.fallback, material: 'inherit' }],
     structures: [],
-    pointsLinked: false,
+    terrainSpace: null,
+    echoFieldEnabled: false,
+    automaticReflectors: [],
     globalReflectionLevelDb: REFLECTION_LEVEL_RANGE.fallback,
     globalMaterial: 'generic',
     settings: {
@@ -83,27 +97,78 @@ function defaultWorkspace() {
   };
 }
 
+function storedTerrainSpace(value) {
+  try {
+    return parseTerrainSpace(value ?? null);
+  } catch {
+    return null;
+  }
+}
+
+function storedPlacement(value) {
+  if (!isValidCoordinate(value?.source) || !isValidCoordinate(value?.listener)) return null;
+  return {
+    source: { latitude: value.source.latitude, longitude: value.source.longitude },
+    listener: { latitude: value.listener.latitude, longitude: value.listener.longitude },
+    pointsLinked: Boolean(value.pointsLinked)
+  };
+}
+
+function copiedPlacement(value) {
+  return {
+    source: { ...value.source },
+    listener: { ...value.listener },
+    pointsLinked: value.pointsLinked
+  };
+}
+
+function terrainPlacementsFrom(value) {
+  return {
+    exterior: copiedPlacement(value),
+    interior: copiedPlacement(value)
+  };
+}
+
+function storedTerrainPlacements(value) {
+  const exterior = storedPlacement(value?.exterior);
+  const interior = storedPlacement(value?.interior);
+  return exterior && interior ? { exterior, interior } : null;
+}
+
+function storedReflectors(values) {
+  if (!Array.isArray(values)) return [];
+  return values.filter(isValidCoordinate).map(reflector => ({
+    id: typeof reflector.id === 'string' ? reflector.id : crypto.randomUUID(),
+    latitude: reflector.latitude,
+    longitude: reflector.longitude,
+    levelDb: boundedValue(reflector.levelDb, REFLECTION_LEVEL_RANGE),
+    material: materialValues.has(reflector.material) ? reflector.material : 'inherit',
+    ...(validEdge(reflector.buildingEdge) ? { buildingEdge: reflector.buildingEdge } : {}),
+    ...(typeof reflector.buildingId === 'string' || typeof reflector.buildingId === 'number' ? { buildingId: reflector.buildingId } : {}),
+    ...(typeof reflector.facadeMaterial === 'string' ? { facadeMaterial: reflector.facadeMaterial } : {}),
+    ...(['specular', 'diffuse'].includes(reflector.reflectionKind) ? { reflectionKind: reflector.reflectionKind } : {}),
+    ...(Array.isArray(reflector.visibleReflectorIds) ? { visibleReflectorIds: reflector.visibleReflectorIds.filter(id => typeof id === 'string') } : {})
+  }));
+}
+
 function storedWorkspace() {
   try {
     const saved = JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY));
-    if (!isValidCoordinate(saved?.source) || !isValidCoordinate(saved?.listener) || !Array.isArray(saved?.reflectors)) return null;
+    const mapPlacement = storedPlacement(saved?.mapPlacement);
+    const terrainSpace = storedTerrainSpace(saved?.terrainSpace);
+    const terrainPlacements = terrainSpace ? storedTerrainPlacements(saved?.terrainPlacements) : null;
+    if (!mapPlacement || (terrainSpace && !terrainPlacements) || !Array.isArray(saved?.reflectors)) return null;
     return {
       project: typeof saved.project?.id === 'string' && typeof saved.project?.name === 'string' && typeof saved.project?.createdAt === 'string'
         ? saved.project : newProject(),
-      source: saved.source,
-      listener: saved.listener,
-      reflectors: saved.reflectors.filter(isValidCoordinate).map(reflector => ({
-        id: typeof reflector.id === 'string' ? reflector.id : crypto.randomUUID(),
-        latitude: reflector.latitude,
-        longitude: reflector.longitude,
-        levelDb: boundedValue(reflector.levelDb, REFLECTION_LEVEL_RANGE),
-        material: materialValues.has(reflector.material) ? reflector.material : 'inherit',
-        ...(validEdge(reflector.buildingEdge) ? { buildingEdge: reflector.buildingEdge } : {}),
-        ...(typeof reflector.buildingId === 'string' || typeof reflector.buildingId === 'number' ? { buildingId: reflector.buildingId } : {}),
-        ...(typeof reflector.facadeMaterial === 'string' ? { facadeMaterial: reflector.facadeMaterial } : {})
-      })),
+      activeSpace: saved.activeSpace === 'terrain' && terrainSpace ? 'terrain' : 'map',
+      mapPlacement,
+      terrainPlacements,
+      reflectors: storedReflectors(saved.reflectors),
       structures: Array.isArray(saved.structures) ? saved.structures.filter(validStructure) : [],
-      pointsLinked: Boolean(saved.pointsLinked),
+      terrainSpace,
+      echoFieldEnabled: Boolean(saved.echoFieldEnabled),
+      automaticReflectors: storedReflectors(saved.automaticReflectors),
       globalReflectionLevelDb: boundedValue(saved.globalReflectionLevelDb, REFLECTION_LEVEL_RANGE),
       globalMaterial: materialValues.has(saved.globalMaterial) && saved.globalMaterial !== 'inherit' ? saved.globalMaterial : 'generic',
       settings: {
@@ -137,9 +202,9 @@ let playbackProgressTimer = null;
 let reflectionPulseAnimationFrame = null;
 let lastSearchAt = 0;
 let hoveredBuildingEdge = null;
-let automaticReflectors = [];
-let echoFieldEnabled = false;
-let echoFieldUsesSavedReflectors = false;
+let automaticReflectors = state.automaticReflectors;
+let echoFieldEnabled = state.echoFieldEnabled;
+let echoFieldUsesSavedReflectors = echoFieldEnabled && automaticReflectors.length > 0;
 let echoFieldHandle = null;
 let echoFieldUpdateTimer = null;
 let imageBackground = null;
@@ -153,6 +218,21 @@ const structureMarkers = [];
 let structureAreaDrag = null;
 let structureEdgeDrag = null;
 let suppressStructureEdgeClick = false;
+let terrainField = null;
+let terrainWorker = null;
+let terrainRevision = 0;
+let terrainBuildInFlight = false;
+let terrainBuildQueued = false;
+let terrainBuildTimer = null;
+let terrainDrawArmed = false;
+let terrainDraft = null;
+let terrainPreview = null;
+let terrainMove = null;
+let terrainLoading = null;
+let renderedTerrainImage = null;
+let cachedTerrainFrame = null;
+let storedHeightfield = null;
+const terrainHandles = [];
 
 const protocol = new pmtiles.Protocol();
 maplibregl.addProtocol('pmtiles', protocol.tile);
@@ -232,15 +312,27 @@ function saveWorkspaceNow() {
 
 window.addEventListener('pagehide', saveWorkspaceNow);
 
+/** The heightfield is encoded once per capture; settings changes do not re-encode it. */
+function storableTerrainSpace() {
+  if (!state.terrainSpace) return null;
+  if (storedHeightfield?.capture !== state.terrainSpace.capture) {
+    storedHeightfield = { capture: state.terrainSpace.capture, heightfield: serializeTerrainSpace(state.terrainSpace).heightfield };
+  }
+  return { ...serializeTerrainSpace(state.terrainSpace, { includeHeightfield: false }), heightfield: storedHeightfield.heightfield };
+}
+
 function saveWorkspace() {
   try {
     localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify({
-      source: state.source,
       project: state.project,
-      listener: state.listener,
+      activeSpace: state.activeSpace,
+      mapPlacement: state.mapPlacement,
+      terrainPlacements: state.terrainPlacements,
       reflectors: state.reflectors,
+      automaticReflectors,
+      echoFieldEnabled,
       structures: state.structures,
-      pointsLinked: state.pointsLinked,
+      terrainSpace: storableTerrainSpace(),
       globalReflectionLevelDb: state.globalReflectionLevelDb,
       globalMaterial: state.globalMaterial,
       settings: state.settings
@@ -262,6 +354,11 @@ function syncWorkspaceControls() {
   updateDirectPathMetrics();
   syncPlayButton();
 }
+
+document.querySelectorAll('[data-material-options]').forEach(select => {
+  const values = Object.keys(MATERIAL_LABELS).filter(value => value !== 'inherit' || select.dataset.materialOptions === 'inherit');
+  select.replaceChildren(...values.map(value => new Option(MATERIAL_LABELS[value], value)));
+});
 
 syncWorkspaceControls();
 
@@ -292,28 +389,87 @@ function releaseSavedEchoField() {
 function syncMarkers() {
   markers.forEach(marker => marker.remove());
   markers.clear();
-  if (state.pointsLinked) {
-    createMarker('combined', 'combined', state.source, point => {
+  const placement = activePlacement();
+  if (placement.pointsLinked) {
+    createMarker('combined', 'combined', placement.source, point => {
       releaseSavedEchoField();
-      state.source = point;
-      state.listener = { ...point };
+      placement.source = point;
+      placement.listener = { ...point };
       renderGeometry();
     });
   } else {
-    createMarker('source', 'source', state.source, point => { releaseSavedEchoField(); state.source = point; renderGeometry(); });
-    createMarker('listener', 'listener', state.listener, point => { releaseSavedEchoField(); state.listener = point; renderGeometry(); });
+    createMarker('source', 'source', placement.source, point => { releaseSavedEchoField(); placement.source = point; renderGeometry(); });
+    createMarker('listener', 'listener', placement.listener, point => { releaseSavedEchoField(); placement.listener = point; renderGeometry(); });
   }
-  state.reflectors.forEach((reflector, index) => createMarker(reflector.id, 'reflector', reflector, point => {
+  visibleManualReflectors().forEach((reflector, index) => createMarker(reflector.id, 'reflector', reflector, point => {
     Object.assign(reflector, point);
     delete reflector.buildingEdge;
     delete reflector.buildingId;
     delete reflector.facadeMaterial;
     renderGeometry();
   }, String(index + 1)));
+  syncMarkerHeights();
 }
 
-const audibleReflectors = () => [...state.reflectors, ...automaticReflectors];
+const formatHeight = metres => `${metres < 10 ? metres.toFixed(1) : Math.round(metres)} m`;
+
+function syncMarkerHeights() {
+  const placement = terrainActive() ? propagation() : null;
+  [['source', 'source'], ['listener', 'listener'], ['combined', 'listener']].forEach(([id, role]) => {
+    const element = markers.get(id)?.getElement();
+    if (!element) return;
+    let label = element.querySelector('.marker-height');
+    if (!placement) { label?.remove(); element.classList.remove('marker-invalid'); return; }
+    if (!label) {
+      label = document.createElement('span');
+      label.className = 'marker-height';
+      element.append(label);
+    }
+    const placed = placement[role];
+    label.textContent = formatHeight(placed.heightMetres);
+    element.classList.toggle('marker-invalid', !placed.valid);
+  });
+}
+
+function activeTerrainPlacement() { return state.terrainPlacements?.[state.terrainSpace?.mode] ?? null; }
+function terrainAvailable() { return Boolean(state.terrainSpace && activeTerrainPlacement()); }
+function terrainActive() { return state.activeSpace === 'terrain' && terrainAvailable(); }
+function activePlacement() { return terrainActive() ? activeTerrainPlacement() : state.mapPlacement; }
+const audibleReflectors = () => terrainActive()
+  ? terrainField?.valid ? terrainField.reflectors : []
+  : [...state.reflectors, ...automaticReflectors];
 const hasEchoFieldWalls = () => state.buildingsVisible || state.structures.length > 0;
+const visibleManualReflectors = () => terrainActive() ? [] : state.reflectors;
+
+function setEchoFieldButtonDisabled(disabled) {
+  $('#echo-field-button').disabled = disabled || terrainActive();
+}
+
+function activeTerrainFrame() {
+  if (!terrainActive()) return null;
+  if (cachedTerrainFrame?.space !== state.terrainSpace) cachedTerrainFrame = { space: state.terrainSpace, frame: terrainFrame(state.terrainSpace) };
+  return cachedTerrainFrame.frame;
+}
+
+/**
+ * The Source and Listener as sound travels between them in the active space. In a terrain they
+ * carry positions in the terrain frame and distances are straight lines through the air.
+ */
+function propagation() {
+  const placement = activePlacement();
+  const frame = activeTerrainFrame();
+  if (!frame) return { source: placement.source, listener: placement.listener, distanceMetres, directOccluded: false, valid: true };
+  const source = placePoint(frame, placement.source, terrainHeightMetres(state.terrainSpace, 'source'));
+  const listener = placePoint(frame, placement.listener, terrainHeightMetres(state.terrainSpace, 'listener'));
+  const valid = source.valid && listener.valid;
+  return {
+    source, listener, distanceMetres: terrainDistanceMetres, valid,
+    directOccluded: valid && !segmentClear(frame, source.positionMetres, listener.positionMetres)
+  };
+}
+
+/** Terrain occlusion is part of the terrain itself, so it always applies there. */
+const renderSettings = () => terrainActive() ? { ...state.settings.echoField, buildingOcclusion: true } : state.settings.echoField;
 
 const selectedStructure = () => state.structures.find(structure => structure.id === selectedStructureId) ?? null;
 
@@ -427,31 +583,33 @@ function deleteSelectedStructure() {
   selectedStructureId = null;
   structurePanelOpen = true;
   if (!hasEchoFieldWalls() && echoFieldEnabled) setEchoFieldEnabled(false);
-  $('#echo-field-button').disabled = !hasEchoFieldWalls();
+  setEchoFieldButtonDisabled(!hasEchoFieldWalls());
   syncStructureGeometry();
   commitStructureGeometry();
 }
 
 function routeGeoJson() {
+  const placement = activePlacement();
   return {
     type: 'FeatureCollection',
     features: audibleReflectors().map(reflector => ({
       type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [
-        [state.source.longitude, state.source.latitude],
+        [placement.source.longitude, placement.source.latitude],
         [reflector.longitude, reflector.latitude],
-        [state.listener.longitude, state.listener.latitude]
+        [placement.listener.longitude, placement.listener.latitude]
       ] }
     }))
   };
 }
 
 function directRouteGeoJson() {
+  const placement = activePlacement();
   return {
     type: 'Feature',
     properties: {},
     geometry: { type: 'LineString', coordinates: [
-      [state.source.longitude, state.source.latitude],
-      [state.listener.longitude, state.listener.latitude]
+      [placement.source.longitude, placement.source.latitude],
+      [placement.listener.longitude, placement.listener.latitude]
     ] }
   };
 }
@@ -479,22 +637,24 @@ function clearBuildingHover() {
 }
 
 function circleGeoJson() {
-  if (!echoFieldEnabled) return { type: 'FeatureCollection', features: [] };
-  const eastScale = metresPerDegreeLongitude(state.listener.latitude);
+  if (!echoFieldEnabled || terrainActive()) return { type: 'FeatureCollection', features: [] };
+  const listener = state.mapPlacement.listener;
+  const eastScale = metresPerDegreeLongitude(listener.latitude);
   const coordinates = Array.from({ length: ECHO_FIELD_CIRCLE_POINTS + 1 }, (_, index) => {
     const angle = index / ECHO_FIELD_CIRCLE_POINTS * Math.PI * 2;
     return [
-      state.listener.longitude + Math.sin(angle) * state.settings.echoFieldRadiusMetres / eastScale,
-      state.listener.latitude + Math.cos(angle) * state.settings.echoFieldRadiusMetres / metresPerDegreeLatitude()
+      listener.longitude + Math.sin(angle) * state.settings.echoFieldRadiusMetres / eastScale,
+      listener.latitude + Math.cos(angle) * state.settings.echoFieldRadiusMetres / metresPerDegreeLatitude()
     ];
   });
   return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [coordinates] } };
 }
 
 function echoFieldHandlePoint() {
+  const listener = state.mapPlacement.listener;
   return {
-    latitude: state.listener.latitude,
-    longitude: state.listener.longitude + state.settings.echoFieldRadiusMetres / metresPerDegreeLongitude(state.listener.latitude)
+    latitude: listener.latitude,
+    longitude: listener.longitude + state.settings.echoFieldRadiusMetres / metresPerDegreeLongitude(listener.latitude)
   };
 }
 
@@ -503,6 +663,7 @@ function syncEchoFieldGeometry() {
   if (echoFieldEnabled && echoFieldHandle) {
     const point = echoFieldHandlePoint();
     echoFieldHandle.setLngLat([point.longitude, point.latitude]);
+    echoFieldHandle.getElement().hidden = terrainActive();
   }
 }
 
@@ -515,6 +676,275 @@ function syncRoutes() {
   if (edgeSource) edgeSource.setData(buildingEdgesGeoJson());
   map.getSource('structures')?.setData(structuresGeoJson());
   map.getSource('structure-edges')?.setData(structureEdgesGeoJson());
+}
+
+const EMPTY_GEOJSON = Object.freeze({ type: 'FeatureCollection', features: [] });
+const TERRAIN_SIZE_MESSAGE = `The terrain rectangle must be ${MINIMUM_CAPTURE_EXTENT_METRES} m to ${MAXIMUM_CAPTURE_EXTENT_METRES / 1000} km across.`;
+const TERRAIN_ATTRIBUTION = `<a href="${TERRAIN_PROVIDER.attributionUrl}">Terrain Tiles</a>: Mapzen, AWS Open Data`;
+
+function removeTerrainLayers() {
+  ['terrain-floor', 'terrain-outline', 'terrain-hit', TERRAIN_IMAGE_SOURCE_ID].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+  ['terrain-floor', 'terrain-outline', TERRAIN_IMAGE_SOURCE_ID].forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+  renderedTerrainImage = null;
+}
+
+function syncTerrainLayers() {
+  if (!map.getStyle() || !map.getLayer('direct-route')) return;
+  const frame = activeTerrainFrame();
+  if (!frame) { removeTerrainLayers(); return; }
+  const imageKey = { capture: state.terrainSpace.capture, mode: frame.mode, floor: frame.floor };
+  const image = map.getSource(TERRAIN_IMAGE_SOURCE_ID);
+  const sameImage = renderedTerrainImage && Object.entries(imageKey).every(([key, value]) => renderedTerrainImage[key] === value);
+  if (image && sameImage) image.setCoordinates(footprintCoordinates(frame));
+  else {
+    if (map.getLayer(TERRAIN_IMAGE_SOURCE_ID)) map.removeLayer(TERRAIN_IMAGE_SOURCE_ID);
+    if (image) map.removeSource(TERRAIN_IMAGE_SOURCE_ID);
+    map.addSource(TERRAIN_IMAGE_SOURCE_ID, { type: 'image', url: hillshadeDataUrl(frame), coordinates: footprintCoordinates(frame) });
+    map.addLayer({
+      id: TERRAIN_IMAGE_SOURCE_ID, type: 'raster', source: TERRAIN_IMAGE_SOURCE_ID,
+      paint: { 'raster-opacity': TERRAIN_HILLSHADE_OPACITY, 'raster-fade-duration': 0 }
+    }, map.getLayer('structures-fill') ? 'structures-fill' : 'direct-route');
+    renderedTerrainImage = imageKey;
+  }
+  if (!map.getSource('terrain-outline')) {
+    map.addSource('terrain-outline', { type: 'geojson', data: footprintGeoJson(frame), attribution: TERRAIN_ATTRIBUTION });
+    map.addLayer({ id: 'terrain-hit', type: 'fill', source: 'terrain-outline', paint: { 'fill-color': ACCENT_COLOR, 'fill-opacity': 0 } }, 'direct-route');
+    map.addLayer({ id: 'terrain-outline', type: 'line', source: 'terrain-outline', paint: { 'line-color': ACCENT_COLOR, 'line-width': 2, 'line-opacity': .9 } }, 'direct-route');
+    map.addSource('terrain-floor', { type: 'geojson', data: floorOutlineGeoJson(frame) });
+    map.addLayer({ id: 'terrain-floor', type: 'line', source: 'terrain-floor', paint: { 'line-color': ACCENT_COLOR, 'line-width': 1.5, 'line-opacity': .8, 'line-dasharray': [2, 2] } }, 'direct-route');
+  } else {
+    map.getSource('terrain-outline').setData(footprintGeoJson(frame));
+    map.getSource('terrain-floor').setData(floorOutlineGeoJson(frame));
+  }
+}
+
+const rectangleRing = (a, b) => [[a.longitude, a.latitude], [b.longitude, a.latitude], [b.longitude, b.latitude], [a.longitude, b.latitude], [a.longitude, a.latitude]];
+
+function terrainDraftGeoJson() {
+  const ring = terrainPreview ?? (terrainDraft ? rectangleRing(pointFromLngLat(terrainDraft.start), pointFromLngLat(terrainDraft.end)) : null);
+  return ring ? { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: ring } } : EMPTY_GEOJSON;
+}
+
+function setTerrainPreview(ring) {
+  terrainPreview = ring;
+  map.getSource('terrain-draft')?.setData(terrainDraftGeoJson());
+}
+
+const boundsBetween = (a, b) => ({
+  west: Math.min(a.longitude, b.longitude), east: Math.max(a.longitude, b.longitude),
+  south: Math.min(a.latitude, b.latitude), north: Math.max(a.latitude, b.latitude)
+});
+
+function clearTerrainHandles() {
+  terrainHandles.splice(0).forEach(marker => marker.remove());
+}
+
+/** Corner handles reshape the captured rectangle; the corner opposite the dragged one stays put. */
+function syncTerrainHandles() {
+  const frame = activeTerrainFrame();
+  if (!frame) { clearTerrainHandles(); return; }
+  const corners = frame.footprint();
+  if (terrainHandles.length !== corners.length) {
+    clearTerrainHandles();
+    corners.forEach((corner, index) => {
+      const element = document.createElement('div');
+      element.className = 'terrain-handle';
+      element.setAttribute('aria-label', 'Reshape terrain');
+      element.title = 'Reshape terrain';
+      const marker = new maplibregl.Marker({ element, draggable: true }).setLngLat([corner.longitude, corner.latitude]).addTo(map);
+      marker.on('drag', () => {
+        const current = activeTerrainFrame();
+        if (current) setTerrainPreview(rectangleRing(pointFromLngLat(marker.getLngLat()), current.footprint()[(index + 2) % 4]));
+      });
+      marker.on('dragend', () => {
+        const current = activeTerrainFrame();
+        if (!current) return;
+        const opposite = current.footprint()[(index + 2) % 4];
+        const bounds = boundsBetween(pointFromLngLat(marker.getLngLat()), opposite);
+        if (validCaptureBounds(bounds)) loadTerrain(bounds);
+        else {
+          setTerrainPreview(null);
+          syncTerrainHandles();
+          window.alert(TERRAIN_SIZE_MESSAGE);
+        }
+      });
+      terrainHandles.push(marker);
+    });
+  }
+  terrainHandles.forEach((marker, index) => marker.setLngLat([corners[index].longitude, corners[index].latitude]));
+}
+
+function syncTerrainControls() {
+  const active = terrainActive();
+  const available = terrainAvailable();
+  const button = $('#terrain-button');
+  button.setAttribute('aria-pressed', String(active || terrainDrawArmed));
+  const count = terrainField?.valid ? terrainField.reflectors.length : 0;
+  button.textContent = active && count ? `Terrain · ${count}` : 'Terrain';
+  button.title = active ? 'Return to map space' : terrainDrawArmed ? 'Drag a rectangle on the map' : available ? 'Open saved terrain space' : 'Draw a terrain rectangle';
+  button.disabled = Boolean(imageBackground);
+  if (terrainLoading) button.setAttribute('aria-busy', 'true');
+  else button.removeAttribute('aria-busy');
+  setEchoFieldButtonDisabled(!hasEchoFieldWalls());
+  $('#image-background-button').disabled = active;
+  $('#clear-reflectors').disabled = active;
+  document.querySelectorAll('[data-tool="reflector"]').forEach(tool => { tool.disabled = active; });
+  $('#settings-tab-terrain').disabled = !active;
+}
+
+function setTerrainDrawArmed(armed) {
+  terrainDrawArmed = armed;
+  if (armed) {
+    activeTool = null;
+    document.querySelectorAll('[data-tool]').forEach(tool => tool.classList.remove('active'));
+    clearBuildingHover();
+  }
+  map.getCanvas().style.cursor = armed ? 'crosshair' : '';
+  syncTerrainControls();
+}
+
+function syncTerrainResult() {
+  scheduleSpaceDraw();
+  syncRoutes();
+  syncTerrainControls();
+  syncPlayButton();
+  $('#empty-reflections').hidden = audibleReflectors().length > 0 || terrainActive();
+}
+
+function createTerrainWorker() {
+  const worker = new Worker(new URL('./terrain-worker.js', import.meta.url), { type: 'module' });
+  worker.addEventListener('message', ({ data }) => {
+    terrainBuildInFlight = false;
+    if (data.revision === terrainRevision && state.terrainSpace) {
+      if (data.error) console.error(data.error);
+      terrainField = data.error ? null : data.field;
+      monitorRenderCache = null;
+      invalidateRenderedPlayback();
+      syncTerrainResult();
+    }
+    if (terrainBuildQueued) {
+      terrainBuildQueued = false;
+      requestTerrainBuild();
+    }
+  });
+  worker.addEventListener('error', event => {
+    terrainBuildInFlight = false;
+    console.error(event.message);
+  });
+  return worker;
+}
+
+function requestTerrainBuild() {
+  if (!terrainActive()) return;
+  if (terrainBuildInFlight) { terrainBuildQueued = true; return; }
+  terrainWorker ??= createTerrainWorker();
+  terrainBuildInFlight = true;
+  terrainRevision += 1;
+  terrainWorker.postMessage({
+    revision: terrainRevision, space: state.terrainSpace, source: activeTerrainPlacement().source, listener: activeTerrainPlacement().listener,
+    globalReflectionLevelDb: state.globalReflectionLevelDb, maxSurfaces: state.settings.echoField.maxSurfaces,
+    speedOfSound: soundSpeedMetresPerSecond(state.settings.echoField)
+  });
+}
+
+function scheduleTerrainBuild() {
+  clearTimeout(terrainBuildTimer);
+  terrainBuildTimer = setTimeout(requestTerrainBuild, TERRAIN_BUILD_DELAY_MS);
+}
+
+function refreshActiveSpace() {
+  monitorRenderCache = null;
+  syncSpacePanel();
+  syncTerrainLayers();
+  syncTerrainHandles();
+  syncEchoFieldGeometry();
+  syncTerrainControls();
+  syncMarkers();
+  render();
+}
+
+function setActiveSpace(next) {
+  if (next === 'terrain' && !terrainAvailable()) return;
+  const active = next === 'terrain' ? 'terrain' : 'map';
+  if (state.activeSpace === active) return;
+  state.activeSpace = active;
+  if (active === 'terrain') {
+    activeTool = null;
+    document.querySelectorAll('[data-tool]').forEach(tool => tool.classList.remove('active'));
+    clearBuildingHover();
+  }
+  terrainRevision += 1;
+  if (active === 'terrain') terrainField = null;
+  refreshActiveSpace();
+  scheduleSave();
+}
+
+function setTerrainSpace(next, { activate = false } = {}) {
+  state.terrainSpace = next;
+  if (!next) {
+    state.terrainPlacements = null;
+    state.activeSpace = 'map';
+  } else {
+    state.terrainPlacements ??= terrainPlacementsFrom(state.mapPlacement);
+    if (activate) {
+      state.activeSpace = 'terrain';
+      activeTool = null;
+      document.querySelectorAll('[data-tool]').forEach(tool => tool.classList.remove('active'));
+      clearBuildingHover();
+    }
+  }
+  terrainField = null;
+  terrainRevision += 1;
+  refreshActiveSpace();
+}
+
+async function loadTerrain(bounds) {
+  terrainLoading?.abort();
+  const controller = new AbortController();
+  terrainLoading = controller;
+  syncTerrainControls();
+  try {
+    const capture = await captureTerrain(bounds, { signal: controller.signal });
+    if (terrainLoading !== controller) return;
+    const next = normalizeTerrainSpace({ ...(state.terrainSpace ?? {}), capture });
+    state.terrainPlacements ??= terrainPlacementsFrom(state.mapPlacement);
+    ['exterior', 'interior'].forEach(mode => placePointsInsideTerrain(
+      normalizeTerrainSpace({ ...next, mode }), state.terrainPlacements[mode]
+    ));
+    setTerrainSpace(next, { activate: true });
+  } catch (error) {
+    if (error?.name !== 'AbortError') {
+      console.error(error);
+      window.alert('Terrain data could not be loaded.');
+    }
+    syncTerrainHandles();
+  } finally {
+    if (terrainLoading === controller) {
+      terrainLoading = null;
+      setTerrainPreview(null);
+    }
+    syncTerrainControls();
+  }
+}
+
+/**
+ * A Source or Listener where the terrain cannot hear it is moved: into the rectangle's centre for
+ * Canyon, under the highest ceiling for Chamber, one cell to either side. Points far apart in rough
+ * terrain often share no visible surface at all, and then there is no echo to hear.
+ */
+function placePointsInsideTerrain(space, placement = activeTerrainPlacement()) {
+  const frame = terrainFrame(space);
+  const anchor = space.mode === 'interior' ? tallestCavityPoint(frame)?.point : frame.pivot;
+  if (!anchor) return;
+  const audible = point => placePoint(frame, point, 1).valid;
+  const centre = frame.worldFromPoint(anchor);
+  const offset = direction => frame.pointFromWorld({ x: centre.x + direction * frame.cellX * frame.scale, y: centre.y });
+  if (placement.pointsLinked) {
+    if (!audible(placement.source)) { placement.source = { ...anchor }; placement.listener = { ...anchor }; }
+    return;
+  }
+  if (!audible(placement.source)) placement.source = offset(-1);
+  if (!audible(placement.listener)) placement.listener = offset(1);
 }
 
 function removeImageLayer() {
@@ -569,7 +999,8 @@ function syncImageModeControls() {
   buildingsButton.disabled = active;
   buildingsButton.setAttribute('aria-pressed', String(active ? false : state.buildingsVisible));
   buildingsButton.title = active ? 'Building data is unavailable with an image background' : state.buildingsVisible ? 'Hide building data' : 'Load building data';
-  $('#echo-field-button').disabled = !state.buildingsVisible && state.structures.length === 0;
+  setEchoFieldButtonDisabled(!state.buildingsVisible && state.structures.length === 0);
+  syncTerrainControls();
 }
 
 function imageScaleGeoJson() {
@@ -632,8 +1063,8 @@ function openImagePanel(name) {
 }
 
 function transformPlacedGeometry(previous, next) {
-  state.source = transformImagePoint(state.source, previous, next);
-  state.listener = transformImagePoint(state.listener, previous, next);
+  state.mapPlacement.source = transformImagePoint(state.mapPlacement.source, previous, next);
+  state.mapPlacement.listener = transformImagePoint(state.mapPlacement.listener, previous, next);
   state.reflectors.forEach(reflector => {
     Object.assign(reflector, transformImagePoint(reflector, previous, next));
     if (reflector.buildingEdge) reflector.buildingEdge = transformImageEdge(reflector.buildingEdge, previous, next);
@@ -686,9 +1117,16 @@ function formatDistance(metres) {
 }
 
 function updateDirectPathMetrics() {
-  const metres = distanceMetres(state.source, state.listener);
+  const placement = propagation();
+  const output = $('#direct-path-metrics');
+  if (!placement.valid) {
+    const outside = !placement.source.valid ? 'Source' : 'Listener';
+    output.textContent = `${outside} outside the ${state.terrainSpace.mode === 'interior' ? 'cavity' : 'terrain'}`;
+    return;
+  }
+  const metres = placement.distanceMetres(placement.source, placement.listener);
   const seconds = metres / soundSpeedMetresPerSecond(state.settings.echoField);
-  $('#direct-path-metrics').textContent = `Source → Listener: ${formatDistance(metres)} · ${seconds.toFixed(3)} s`;
+  output.textContent = `Source → Listener: ${formatDistance(metres)} · ${seconds.toFixed(3)} s${placement.directOccluded ? ' · blocked' : ''}`;
 }
 
 /** Card elements that change while the geometry or levels change, kept per reflector id. */
@@ -732,19 +1170,19 @@ function reflectionCard(reflector, index) {
 
 function renderReflectionList() {
   reflectionCards.clear();
-  $('#reflection-list').replaceChildren(...state.reflectors.map((reflector, index) => {
+  $('#reflection-list').replaceChildren(...visibleManualReflectors().map((reflector, index) => {
     const card = reflectionCard(reflector, index);
     reflectionCards.set(reflector.id, card);
     return card.element;
   }));
-  $('#empty-reflections').hidden = audibleReflectors().length > 0;
+  $('#empty-reflections').hidden = audibleReflectors().length > 0 || terrainActive();
 }
 
 function updateReflectionMetrics() {
   state.reflectors.forEach(reflector => {
     const card = reflectionCards.get(reflector.id);
     if (!card) return;
-    const metrics = reflectionMetrics(state.source, state.listener, reflector, soundSpeedMetresPerSecond(state.settings.echoField));
+    const metrics = reflectionMetrics(state.mapPlacement.source, state.mapPlacement.listener, reflector, soundSpeedMetresPerSecond(state.settings.echoField));
     card.listenerLeg.textContent = formatDistance(metrics.listenerLegMetres);
     card.delay.textContent = `${metrics.propagationSeconds.toFixed(3)} s`;
   });
@@ -760,11 +1198,12 @@ function updateReflectionLevels() {
 }
 
 function syncLinkControls() {
-  $('#link-points').setAttribute('aria-pressed', String(state.pointsLinked));
-  $('.link-label').textContent = state.pointsLinked ? 'Unlink' : 'Link';
+  const linked = activePlacement().pointsLinked;
+  $('#link-points').setAttribute('aria-pressed', String(linked));
+  $('.link-label').textContent = linked ? 'Unlink' : 'Link';
   const arrivalsOnly = $('#arrivals-only');
   // The reason belongs on the label as well, because that is what a pointer lands on.
-  arrivalsOnly.closest('label').title = arrivalsOnly.title = state.pointsLinked
+  arrivalsOnly.closest('label').title = arrivalsOnly.title = linked
     ? 'Mute the source onset. Linked points share one place, so only the reflections remain.'
     : 'Mute the source onset and monitor only what arrives at the Listener.';
 }
@@ -772,6 +1211,8 @@ function syncLinkControls() {
 /** Moving geometry: routes, derived readouts, and a scheduled save. No card is rebuilt. */
 function renderGeometry() {
   syncRoutes();
+  syncMarkerHeights();
+  if (state.terrainSpace) syncSpacePanel();
   updateDirectPathMetrics();
   updateReflectionMetrics();
   scheduleEchoFieldUpdate();
@@ -850,9 +1291,106 @@ map.on('load', () => {
   map.addSource(IMAGE_SCALE_SOURCE_ID, { type: 'geojson', data: imageScaleGeoJson() });
   map.addLayer({ id: `${IMAGE_SCALE_SOURCE_ID}-line`, type: 'line', source: IMAGE_SCALE_SOURCE_ID, filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': ACCENT_COLOR, 'line-width': 4, 'line-opacity': 1, 'line-dasharray': [1, 1] } });
   map.addLayer({ id: `${IMAGE_SCALE_SOURCE_ID}-points`, type: 'circle', source: IMAGE_SCALE_SOURCE_ID, filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 6, 'circle-color': ACCENT_COLOR, 'circle-stroke-width': 3, 'circle-stroke-color': '#111' } });
+  map.addSource('terrain-draft', { type: 'geojson', data: terrainDraftGeoJson() });
+  map.addLayer({ id: 'terrain-draft', type: 'line', source: 'terrain-draft', paint: { 'line-color': ACCENT_COLOR, 'line-width': 2, 'line-dasharray': [2, 2] } });
   syncImageLayer();
   syncImageModeControls();
-  syncMarkers(); syncStructureGeometry(); render();
+  syncTerrainLayers();
+  syncTerrainHandles();
+  syncTerrainControls();
+  syncSpacePanel();
+  syncMarkers();
+  syncStructureGeometry();
+  if (echoFieldEnabled) setEchoFieldEnabled(true, automaticReflectors);
+  else render();
+});
+
+let suppressTerrainClick = false;
+
+map.on('mousedown', event => {
+  if (!terrainDrawArmed || fromMarker(event)) return;
+  event.preventDefault();
+  terrainDraft = { start: event.lngLat, end: event.lngLat, restoreDragPan: map.dragPan.isEnabled() };
+  map.dragPan.disable();
+});
+
+map.on('mousemove', event => {
+  if (terrainMove) {
+    const dx = event.lngLat.lng - terrainMove.start.lng;
+    const dy = event.lngLat.lat - terrainMove.start.lat;
+    terrainMove.end = event.lngLat;
+    terrainMove.moved ||= Math.hypot(event.point.x - terrainMove.startPoint.x, event.point.y - terrainMove.startPoint.y) > 3;
+    setTerrainPreview(terrainMove.ring.map(([longitude, latitude]) => [longitude + dx, latitude + dy]));
+    map.getCanvas().style.cursor = 'grabbing';
+    return;
+  }
+  if (!terrainDraft) return;
+  terrainDraft.end = event.lngLat;
+  map.getSource('terrain-draft')?.setData(terrainDraftGeoJson());
+});
+
+const fromMarker = event => Boolean(event.originalEvent?.target?.closest?.('.maplibregl-marker'));
+
+map.on('mousedown', 'terrain-hit', event => {
+  if (terrainDrawArmed || activeTool || terrainLoading || event.defaultPrevented || fromMarker(event)) return;
+  if (map.queryRenderedFeatures(event.point, { layers: ['structures-fill'] }).length) return;
+  const frame = activeTerrainFrame();
+  if (!frame) return;
+  event.preventDefault();
+  const corners = frame.footprint().map(point => [point.longitude, point.latitude]);
+  terrainMove = { start: event.lngLat, end: event.lngLat, startPoint: event.point, ring: [...corners, corners[0]], restoreDragPan: map.dragPan.isEnabled(), moved: false };
+  map.dragPan.disable();
+});
+
+map.on('mouseenter', 'terrain-hit', () => { if (!terrainDrawArmed && !activeTool) map.getCanvas().style.cursor = 'grab'; });
+map.on('mouseleave', 'terrain-hit', () => { if (!terrainMove && !terrainDrawArmed) map.getCanvas().style.cursor = ''; });
+
+/** Moving the rectangle captures the terrain at the new place; its scale stays. */
+function finishTerrainMove() {
+  if (!terrainMove) return;
+  const { start, end, restoreDragPan, moved } = terrainMove;
+  terrainMove = null;
+  if (restoreDragPan) map.dragPan.enable();
+  map.getCanvas().style.cursor = '';
+  if (!moved || !state.terrainSpace) { setTerrainPreview(null); return; }
+  suppressTerrainClick = true;
+  setTimeout(() => { suppressTerrainClick = false; }, 0);
+  const { bounds } = state.terrainSpace.capture;
+  const dx = end.lng - start.lng;
+  const dy = end.lat - start.lat;
+  const next = { west: bounds.west + dx, east: bounds.east + dx, south: bounds.south + dy, north: bounds.north + dy };
+  if (validCaptureBounds(next)) loadTerrain(next);
+  else setTerrainPreview(null);
+}
+
+document.addEventListener('mouseup', finishTerrainMove);
+
+function finishTerrainDraft() {
+  if (!terrainDraft) return;
+  const { start, end, restoreDragPan } = terrainDraft;
+  terrainDraft = null;
+  map.getSource('terrain-draft')?.setData(terrainDraftGeoJson());
+  if (restoreDragPan) map.dragPan.enable();
+  suppressTerrainClick = true;
+  setTimeout(() => { suppressTerrainClick = false; }, 0);
+  setTerrainDrawArmed(false);
+  const bounds = boundsBetween(pointFromLngLat(start), pointFromLngLat(end));
+  if (validCaptureBounds(bounds)) loadTerrain(bounds);
+  else window.alert(TERRAIN_SIZE_MESSAGE);
+}
+
+document.addEventListener('mouseup', finishTerrainDraft);
+
+$('#terrain-button').addEventListener('click', () => {
+  if (terrainActive()) {
+    setActiveSpace('map');
+    return;
+  }
+  if (terrainAvailable()) {
+    setActiveSpace('terrain');
+    return;
+  }
+  setTerrainDrawArmed(!terrainDrawArmed);
 });
 
 function nearestBuildingWall(feature, clickPoint) {
@@ -884,7 +1422,7 @@ function nearestBuildingWall(feature, clickPoint) {
 }
 
 function rebuildEchoField() {
-  if (!echoFieldEnabled) return;
+  if (!echoFieldEnabled || terrainActive()) return;
   echoFieldUsesSavedReflectors = false;
   const walls = state.structures.flatMap(structureWalls);
   const seenEdges = new Set();
@@ -905,12 +1443,12 @@ function rebuildEchoField() {
     });
   });
   const field = reflectionField({
-    source: state.source, listener: state.listener, walls, radiusMetres: state.settings.echoFieldRadiusMetres
+    source: state.mapPlacement.source, listener: state.mapPlacement.listener, walls, radiusMetres: state.settings.echoFieldRadiusMetres
   });
   const candidates = walls.flatMap(wall => {
     const reflection = wallReflectionCandidate(field, wall, distanceMetres);
     if (!reflection) return [];
-    const pathMetres = reflectionMetrics(state.source, state.listener, reflection.point).pathMetres;
+    const pathMetres = reflectionMetrics(state.mapPlacement.source, state.mapPlacement.listener, reflection.point).pathMetres;
     return [{
       id: `area-${wall.key}`,
       ...reflection.point,
@@ -941,6 +1479,7 @@ function rebuildEchoField() {
 }
 
 function scheduleEchoFieldUpdate() {
+  if (terrainActive()) { scheduleTerrainBuild(); return; }
   if (!echoFieldEnabled || echoFieldUsesSavedReflectors) return;
   clearTimeout(echoFieldUpdateTimer);
   echoFieldUpdateTimer = setTimeout(rebuildEchoField, 80);
@@ -1008,6 +1547,7 @@ document.addEventListener('mouseup', finishStructureAreaDrag);
 map.on('mouseout', clearBuildingHover);
 
 map.on('click', event => {
+  if (suppressTerrainClick || terrainDrawArmed) return;
   if (activeImagePanel === 'scale' && imageBackground) {
     const point = pointFromLngLat(event.lngLat);
     imageScalePoints = imageScalePoints.length < 2 ? [...imageScalePoints, point] : [point];
@@ -1021,15 +1561,16 @@ map.on('click', event => {
   if (!activeTool) selectStructure(null);
   if (!activeTool) return;
   const point = pointFromLngLat(event.lngLat);
+  const placement = activePlacement();
   if (activeTool === 'source') {
     releaseSavedEchoField();
-    state.source = point;
-    if (state.pointsLinked) state.listener = { ...point };
+    placement.source = point;
+    if (placement.pointsLinked) placement.listener = { ...point };
   }
   if (activeTool === 'listener') {
     releaseSavedEchoField();
-    state.listener = point;
-    if (state.pointsLinked) state.source = { ...point };
+    placement.listener = point;
+    if (placement.pointsLinked) placement.source = { ...point };
   }
   if (activeTool === 'reflector') {
     const building = state.buildingsVisible
@@ -1054,6 +1595,7 @@ map.on('click', event => {
 });
 
 document.querySelectorAll('[data-tool]').forEach(button => button.addEventListener('click', () => {
+  if (terrainDrawArmed) setTerrainDrawArmed(false);
   activeTool = activeTool === button.dataset.tool ? null : button.dataset.tool;
   document.querySelectorAll('[data-tool]').forEach(item => item.classList.toggle('active', item.dataset.tool === activeTool));
   if (activeTool !== 'reflector') clearBuildingHover();
@@ -1161,6 +1703,8 @@ $('#echo-settings-button').addEventListener('click', () => {
   syncLateModeSettings();
   syncPointModeSettings();
   syncAirModeSettings();
+  selectSettingsTab('echo');
+  if (state.terrainSpace) openTerrainSettings(state.terrainSpace);
   const dialog = $('#echo-settings-dialog');
   dialog.returnValue = 'cancel';
   dialog.showModal();
@@ -1177,10 +1721,322 @@ $('#echo-settings-dialog').addEventListener('close', event => {
     airMode: $('#setting-air-mode').value,
     buildingOcclusion: $('#setting-building-occlusion').checked
   });
+  if (state.terrainSpace) applyTerrainSettings();
   scheduleSave();
   syncPlayButton();
   renderGeometry();
   if (echoFieldEnabled) rebuildEchoField();
+});
+
+function selectSettingsTab(name) {
+  document.querySelectorAll('[data-settings-tab]').forEach(tab => {
+    const selected = tab.dataset.settingsTab === name;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    $(`#${tab.getAttribute('aria-controls')}`).hidden = !selected;
+  });
+}
+
+document.querySelectorAll('[data-settings-tab]').forEach(tab => {
+  tab.addEventListener('click', () => selectSettingsTab(tab.dataset.settingsTab));
+  tab.addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    const tabs = [...document.querySelectorAll('[data-settings-tab]')].filter(item => !item.disabled);
+    const next = tabs[(tabs.indexOf(tab) + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+    selectSettingsTab(next.dataset.settingsTab);
+    next.focus();
+  });
+});
+
+/** Geometric slider resolution. Three decades of scale put 1:1 exactly on a step. */
+const SLIDER_STEPS = 1200;
+const GROUND_OFF_POSITION = GROUND_REFLECTION_RANGE.minimum - 1;
+const geometricValue = (position, minimum, maximum) => minimum * (maximum / minimum) ** (position / SLIDER_STEPS);
+const geometricPosition = (value, minimum, maximum) => maximum <= minimum ? SLIDER_STEPS : Math.round(Math.log(value / minimum) / Math.log(maximum / minimum) * SLIDER_STEPS);
+
+function formatScale(scale) {
+  if (Math.abs(scale - 1) < 1e-9) return '1:1';
+  const ratio = scale < 1 ? 1 / scale : scale;
+  const text = ratio < 10 ? ratio.toFixed(1).replace(/\.0$/, '') : String(Math.round(ratio));
+  return scale < 1 ? `1:${text}` : `${text}:1`;
+}
+
+const formatGround = decibels => decibels === null ? 'Off' : `${decibels > 0 ? '+' : ''}${decibels} dB`;
+
+/** A slider left where it opened keeps the exact stored value instead of its rounded position. */
+function setTerrainSlider(input, position, value) {
+  input.value = position;
+  input.dataset.openedAt = input.value;
+  input.dataset.storedValue = String(value);
+}
+
+const terrainSliderValue = (input, convert) => input.value === input.dataset.openedAt ? Number(input.dataset.storedValue) : convert(Number(input.value));
+
+function pendingTerrainSurface() {
+  const ground = Number($('#terrain-ground').value);
+  return {
+    material: $('#terrain-material').value,
+    scattering: terrainSliderValue($('#terrain-scattering'), value => value),
+    groundReflectionDb: ground === GROUND_OFF_POSITION ? null : ground
+  };
+}
+
+function syncTerrainSettingOutputs() {
+  const pending = pendingTerrainSurface();
+  $('#terrain-scattering-value').textContent = `${Math.round(pending.scattering * 100)}%`;
+  $('#terrain-ground-value').textContent = formatGround(pending.groundReflectionDb);
+}
+
+function openTerrainSettings(space) {
+  const range = floorRange(space.capture.values);
+  $('#terrain-material').value = space.material;
+  setTerrainSlider($('#terrain-scattering'), space.scattering, space.scattering);
+  Object.assign($('#terrain-ground'), { min: GROUND_OFF_POSITION, max: GROUND_REFLECTION_RANGE.maximum });
+  $('#terrain-ground').value = space.groundReflectionDb ?? GROUND_OFF_POSITION;
+  const cellMetres = space.capture.widthMetres / space.capture.columns;
+  $('#terrain-data').textContent = `${formatDistance(cellMetres)} cells · ${Math.round(range.minimum)}–${Math.round(range.maximum + 1)} m`;
+  syncTerrainSettingOutputs();
+}
+
+['#terrain-material', '#terrain-scattering', '#terrain-ground'].forEach(selector => {
+  $(selector).addEventListener('input', syncTerrainSettingOutputs);
+});
+
+$('#delete-terrain').addEventListener('click', async () => {
+  const confirmed = await requestConfirmation({
+    title: 'Delete terrain?',
+    message: 'Delete the captured terrain and its settings? The map space remains unchanged.',
+    confirmLabel: 'Delete terrain'
+  });
+  if (!confirmed) return;
+  terrainLoading?.abort();
+  $('#echo-settings-dialog').close('cancel');
+  setTerrainSpace(null);
+  scheduleSave();
+});
+
+function applyTerrainSettings() {
+  updateTerrainSpace(pendingTerrainSurface());
+}
+
+/** Every terrain change goes through here: a new space object, the map, the panel, and a rebuild. */
+function updateTerrainSpace(changes, { rebuildImage = false } = {}) {
+  const next = normalizeTerrainSpace({ ...state.terrainSpace, ...changes });
+  if (!next) return;
+  const modeChanged = next.mode !== state.terrainSpace.mode;
+  state.terrainSpace = next;
+  terrainField = null;
+  if (rebuildImage) renderedTerrainImage = null;
+  syncTerrainLayers();
+  if (modeChanged) syncMarkers();
+  else syncMarkerHeights();
+  syncTerrainControls();
+  syncSpacePanel();
+  renderGeometry();
+}
+
+let spaceViewMode = 'space';
+let spaceView = { ...DEFAULT_SPACE_VIEW };
+let spaceDrawFrame = null;
+let spaceWindowOpen = false;
+let spaceScene = null;
+let spacePulses = [];
+
+function spacePalette() {
+  const styles = getComputedStyle(document.documentElement);
+  const accent = styles.getPropertyValue('--accent').trim();
+  return {
+    accent,
+    ink: styles.getPropertyValue('--ink').trim(),
+    muted: styles.getPropertyValue('--muted').trim(),
+    panel: styles.getPropertyValue('--panel').trim(),
+    line: '#b8b8b8',
+    rock: '#262626',
+    air: `${accent}1f`
+  };
+}
+
+function drawSpaceViews() {
+  spaceDrawFrame = null;
+  const frame = activeTerrainFrame();
+  if (!frame) return;
+  const placement = propagation();
+  const canvas = spaceWindowOpen ? $('#space-window-canvas') : $('#space-canvas');
+  if (!canvas.clientWidth || !canvas.clientHeight) return;
+  const palette = spacePalette();
+  if (spaceViewMode === 'section') {
+    spaceScene = null;
+    const terrainPlacement = activeTerrainPlacement();
+    drawSection(canvas, { frame, placement, section: sectionProfile(frame, terrainPlacement.source, terrainPlacement.listener) }, palette);
+    return;
+  }
+  const toScreen = drawSpace(canvas, { frame, placement, reflectors: audibleReflectors() }, spaceView, palette);
+  spaceScene = captureSpaceScene(canvas, toScreen);
+  if (spacePulses.length) paintSpacePulses(spaceScene, spacePulses);
+}
+
+function showSpacePulses(pulses) {
+  spacePulses = pulses;
+  if (spaceScene && !spaceDrawFrame) paintSpacePulses(spaceScene, pulses);
+}
+
+function scheduleSpaceDraw() {
+  if (!terrainActive() || spaceDrawFrame) return;
+  spaceDrawFrame = requestAnimationFrame(drawSpaceViews);
+}
+
+function syncSpaceHeightSlider(role, placed) {
+  const maximum = placed.valid ? placed.maximumHeightMetres : EXTERIOR_HEIGHT_RANGE.maximum;
+  const input = $(`#space-${role}-height`);
+  input.dataset.maximum = String(maximum);
+  if (document.activeElement !== input) input.value = geometricPosition(Math.min(maximum, placed.heightMetres), EXTERIOR_HEIGHT_RANGE.minimum, maximum);
+  $(`#space-${role}-height-value`).textContent = placed.valid ? formatHeight(placed.heightMetres) : '—';
+}
+
+function syncSpacePanel() {
+  const space = terrainActive() ? state.terrainSpace : null;
+  $('#space-panel').hidden = !space;
+  if (!space) {
+    if (spaceWindowOpen) closeSpaceWindow();
+    return;
+  }
+  document.querySelectorAll('[data-space-mode]').forEach(button => button.setAttribute('aria-checked', String(button.dataset.spaceMode === space.mode)));
+  document.querySelectorAll('[data-space-view]').forEach(button => button.setAttribute('aria-selected', String(button.dataset.spaceView === spaceViewMode)));
+  document.querySelectorAll('[data-space-control]').forEach(row => { row.hidden = row.dataset.spaceControl !== space.mode; });
+  $('#space-window-title').textContent = space.mode === 'interior' ? 'Chamber' : 'Canyon';
+  const range = floorRange(space.capture.values);
+  const floorInput = $('#space-floor');
+  Object.assign(floorInput, { min: Math.floor(range.minimum), max: Math.ceil(range.maximum) });
+  if (document.activeElement !== floorInput) floorInput.value = space.floorElevationMetres;
+  $('#space-floor-value').textContent = `${Math.round(space.floorElevationMetres)} m`;
+  const scaleInput = $('#space-scale');
+  if (document.activeElement !== scaleInput) scaleInput.value = geometricPosition(space.scale, TERRAIN_SCALE_RANGE.minimum, TERRAIN_SCALE_RANGE.maximum);
+  $('#space-scale-value').textContent = formatScale(space.scale);
+  const placement = propagation();
+  syncSpaceHeightSlider('listener', placement.listener);
+  syncSpaceHeightSlider('source', placement.source);
+  scheduleSpaceDraw();
+}
+
+document.querySelectorAll('[data-space-mode]').forEach(button => button.addEventListener('click', () => {
+  if (!state.terrainSpace || state.terrainSpace.mode === button.dataset.spaceMode) return;
+  const next = normalizeTerrainSpace({ ...state.terrainSpace, mode: button.dataset.spaceMode });
+  placePointsInsideTerrain(next, state.terrainPlacements[next.mode]);
+  updateTerrainSpace({ mode: next.mode }, { rebuildImage: true });
+}));
+
+document.querySelectorAll('[data-space-view]').forEach(button => button.addEventListener('click', () => {
+  spaceViewMode = button.dataset.spaceView;
+  syncSpacePanel();
+}));
+
+$('#space-floor').addEventListener('input', event => {
+  updateTerrainSpace({ floorElevationMetres: Number(event.currentTarget.value) }, { rebuildImage: true });
+});
+
+$('#space-scale').addEventListener('input', event => {
+  updateTerrainSpace({ scale: geometricValue(Number(event.currentTarget.value), TERRAIN_SCALE_RANGE.minimum, TERRAIN_SCALE_RANGE.maximum) });
+});
+
+['listener', 'source'].forEach(role => {
+  $(`#space-${role}-height`).addEventListener('input', event => {
+    const maximum = Number(event.currentTarget.dataset.maximum) || EXTERIOR_HEIGHT_RANGE.maximum;
+    const mode = state.terrainSpace.mode;
+    updateTerrainSpace({
+      heightsMetres: {
+        ...state.terrainSpace.heightsMetres,
+        [mode]: {
+          ...state.terrainSpace.heightsMetres[mode],
+          [role]: geometricValue(Number(event.currentTarget.value), EXTERIOR_HEIGHT_RANGE.minimum, maximum)
+        }
+      }
+    });
+  });
+});
+
+['#space-floor', '#space-scale', '#space-listener-height', '#space-source-height'].forEach(selector => {
+  $(selector).addEventListener('change', () => { syncSpacePanel(); scheduleSave(); });
+});
+
+$('#space-floor').addEventListener('change', () => {
+  const terrainPlacement = activeTerrainPlacement();
+  const previous = { source: terrainPlacement.source, listener: terrainPlacement.listener };
+  placePointsInsideTerrain(state.terrainSpace, terrainPlacement);
+  if (previous.source === terrainPlacement.source && previous.listener === terrainPlacement.listener) return;
+  syncMarkers();
+  renderGeometry();
+});
+
+function attachOrbit(canvas) {
+  let drag = null;
+  canvas.addEventListener('pointerdown', event => {
+    if (spaceViewMode !== 'space') return;
+    drag = { x: event.clientX, y: event.clientY, view: { ...spaceView } };
+    canvas.setPointerCapture(event.pointerId);
+    canvas.style.cursor = 'grabbing';
+  });
+  canvas.addEventListener('pointermove', event => {
+    if (!drag) return;
+    spaceView = {
+      ...spaceView,
+      yaw: drag.view.yaw + (event.clientX - drag.x) * .008,
+      pitch: Math.min(1.45, Math.max(.08, drag.view.pitch + (event.clientY - drag.y) * .006))
+    };
+    scheduleSpaceDraw();
+  });
+  const release = () => { drag = null; canvas.style.cursor = ''; };
+  canvas.addEventListener('pointerup', release);
+  canvas.addEventListener('pointercancel', release);
+  canvas.addEventListener('wheel', event => {
+    if (spaceViewMode !== 'space') return;
+    event.preventDefault();
+    spaceView = { ...spaceView, zoom: Math.min(4, Math.max(.4, spaceView.zoom * Math.exp(-event.deltaY * .0015))) };
+    scheduleSpaceDraw();
+  }, { passive: false });
+  canvas.addEventListener('dblclick', () => {
+    spaceView = { ...DEFAULT_SPACE_VIEW };
+    scheduleSpaceDraw();
+  });
+  new ResizeObserver(scheduleSpaceDraw).observe(canvas);
+}
+
+attachOrbit($('#space-canvas'));
+attachOrbit($('#space-window-canvas'));
+
+function closeSpaceWindow() {
+  spaceWindowOpen = false;
+  $('#space-window').close();
+  $('#space-canvas').classList.remove('detached');
+  $('#space-detach').setAttribute('aria-pressed', 'false');
+  scheduleSpaceDraw();
+}
+
+$('#space-detach').addEventListener('click', () => {
+  if (spaceWindowOpen) { closeSpaceWindow(); return; }
+  spaceWindowOpen = true;
+  $('#space-window').show();
+  $('#space-canvas').classList.add('detached');
+  $('#space-detach').setAttribute('aria-pressed', 'true');
+  scheduleSpaceDraw();
+});
+
+$('#space-window-close').addEventListener('click', closeSpaceWindow);
+$('#space-window').addEventListener('cancel', event => { event.preventDefault(); closeSpaceWindow(); });
+
+$('#space-window-header').addEventListener('pointerdown', event => {
+  if (event.target.closest('button')) return;
+  const windowElement = $('#space-window');
+  const bounds = windowElement.getBoundingClientRect();
+  const offset = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+  const header = event.currentTarget;
+  header.setPointerCapture(event.pointerId);
+  const move = moveEvent => {
+    windowElement.style.left = `${Math.max(0, Math.min(innerWidth - 80, moveEvent.clientX - offset.x))}px`;
+    windowElement.style.top = `${Math.max(0, Math.min(innerHeight - 40, moveEvent.clientY - offset.y))}px`;
+  };
+  const stop = () => { header.removeEventListener('pointermove', move); header.removeEventListener('pointerup', stop); };
+  header.addEventListener('pointermove', move);
+  header.addEventListener('pointerup', stop);
 });
 
 function imageFileData(file) {
@@ -1252,7 +2108,7 @@ $('#create-structure').addEventListener('click', () => {
   state.structures.push(structure);
   selectedStructureId = structure.id;
   structurePanelOpen = true;
-  $('#echo-field-button').disabled = false;
+  setEchoFieldButtonDisabled(false);
   syncStructureGeometry();
   commitStructureGeometry();
 });
@@ -1390,7 +2246,7 @@ function monitorInitialBuildingLoad() {
     map.off('error', onError);
     setBuildingsLoading(false);
     $('#buildings-button').title = loaded ? 'Hide building data' : 'Building data could not be loaded';
-    $('#echo-field-button').disabled = !loaded && state.structures.length === 0;
+    setEchoFieldButtonDisabled(!loaded && state.structures.length === 0);
     if (loaded) $('#echo-field-button').title = 'Create an automatic echo field around the Listener';
   };
   const onSourceData = event => {
@@ -1414,7 +2270,7 @@ $('#buildings-button').addEventListener('click', () => {
   const button = $('#buildings-button');
   button.setAttribute('aria-pressed', String(state.buildingsVisible));
   button.title = state.buildingsVisible ? 'Hide building data' : 'Load building data';
-  $('#echo-field-button').disabled = (!state.buildingsVisible || firstLoad) && state.structures.length === 0;
+  setEchoFieldButtonDisabled((!state.buildingsVisible || firstLoad) && state.structures.length === 0);
   if (!state.buildingsVisible && echoFieldEnabled && state.structures.length === 0) setEchoFieldEnabled(false);
   if (state.buildingsVisible && map.getZoom() < 14) map.easeTo({ zoom: 14 });
 });
@@ -1432,7 +2288,7 @@ function setEchoFieldEnabled(enabled, restoredReflectors = null) {
       .setLngLat([point.longitude, point.latitude]).addTo(map);
     const updateRadius = () => {
       releaseSavedEchoField();
-      state.settings.echoFieldRadiusMetres = Math.max(MINIMUM_ECHO_FIELD_RADIUS_METRES, distanceMetres(state.listener, pointFromLngLat(echoFieldHandle.getLngLat())));
+      state.settings.echoFieldRadiusMetres = Math.max(MINIMUM_ECHO_FIELD_RADIUS_METRES, distanceMetres(state.mapPlacement.listener, pointFromLngLat(echoFieldHandle.getLngLat())));
       scheduleSave();
       syncEchoFieldGeometry();
       scheduleEchoFieldUpdate();
@@ -1442,7 +2298,7 @@ function setEchoFieldEnabled(enabled, restoredReflectors = null) {
     syncEchoFieldGeometry();
     if (Array.isArray(restoredReflectors)) {
       echoFieldUsesSavedReflectors = true;
-      button.disabled = false;
+      setEchoFieldButtonDisabled(false);
       automaticReflectors = restoredReflectors;
       button.textContent = `Echo field · ${automaticReflectors.length}`;
       button.title = `${state.settings.echoFieldRadiusMetres.toFixed(0)} m radius · ${automaticReflectors.length} saved surfaces`;
@@ -1458,7 +2314,7 @@ function setEchoFieldEnabled(enabled, restoredReflectors = null) {
     automaticReflectors = [];
     button.textContent = 'Echo field';
     button.title = 'Create an automatic echo field around the Listener';
-    button.disabled = !hasEchoFieldWalls();
+    setEchoFieldButtonDisabled(!hasEchoFieldWalls());
     syncEchoFieldGeometry();
     render();
   }
@@ -1468,8 +2324,9 @@ $('#echo-field-button').addEventListener('click', () => setEchoFieldEnabled(!ech
 
 $('#link-points').addEventListener('click', () => {
   releaseSavedEchoField();
-  state.pointsLinked = !state.pointsLinked;
-  if (state.pointsLinked) state.listener = { ...state.source };
+  const placement = activePlacement();
+  placement.pointsLinked = !placement.pointsLinked;
+  if (placement.pointsLinked) placement.listener = { ...placement.source };
   syncMarkers();
   render();
 });
@@ -1657,7 +2514,7 @@ function syncPlayButton() {
   else if (renderingPlayback) button.textContent = 'Rendering';
   else if (state.settings.playbackMode === 'rendered') button.textContent = renderedPlayback ? 'Play render' : 'Render';
   else button.textContent = 'Play impulse';
-  button.disabled = renderingPlayback;
+  button.disabled = renderingPlayback || !propagation().valid;
   if (renderingPlayback) button.setAttribute('aria-busy', 'true');
   else button.removeAttribute('aria-busy');
 }
@@ -1768,25 +2625,27 @@ function clearReflectionPulses() {
   reflectionPulseAnimationFrame = null;
   const canvas = $('#reflection-pulses');
   canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  if (spacePulses.length) showSpacePulses([]);
 }
 
 function animateReflectionPulses(events, reflectors, lateEvents = [], durationSeconds = Infinity) {
   clearReflectionPulses();
   if (!events.length || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const pointsById = new Map(reflectors.map(reflector => [reflector.id, reflector]));
-  const manualReflectorIds = new Set(state.reflectors.map(reflector => reflector.id));
+  const manualReflectorIds = new Set(visibleManualReflectors().map(reflector => reflector.id));
+  const placement = propagation();
   const strongest = [...events]
     .sort((a, b) => b.levelDb - a.levelDb)
     .slice(0, MAXIMUM_VISUALIZED_PATHS);
   const pulses = [];
   for (const event of strongest) {
-    let previous = state.source;
+    let previous = placement.source;
     let delaySeconds = 0;
     for (let bounce = 0; bounce < event.reflectorIds.length; bounce += 1) {
       const point = pointsById.get(event.reflectorIds[bounce]);
       if (!point) continue;
       const fromPoint = previous;
-      delaySeconds += distanceMetres(previous, point) / soundSpeedMetresPerSecond(state.settings.echoField);
+      delaySeconds += placement.distanceMetres(previous, point) / soundSpeedMetresPerSecond(state.settings.echoField);
       previous = point;
       pulses.push({
         point,
@@ -1806,7 +2665,7 @@ function animateReflectionPulses(events, reflectors, lateEvents = [], durationSe
     if (!point) continue;
     pulses.push({
       point,
-      fromPoint: pointsById.get(event.previousReflectorId) ?? state.source,
+      fromPoint: pointsById.get(event.previousReflectorId) ?? activePlacement().source,
       delaySeconds: event.seconds,
       manual: manualReflectorIds.has(point.id),
       levelDb: event.levelDb,
@@ -1858,7 +2717,8 @@ function animateReflectionPulses(events, reflectors, lateEvents = [], durationSe
       if (energy > active.strongestEnergy) Object.assign(active, { position, strongestEnergy: energy });
       activeByReflector.set(pulse.point.id, active);
     }
-    for (const active of activeByReflector.values()) {
+    const lit = [];
+    for (const [id, active] of activeByReflector) {
       const combinedLevelDb = 10 * Math.log10(Math.max(Number.MIN_VALUE, active.energy));
       const alpha = Math.max(0, Math.min(active.maximumOpacity, (combinedLevelDb + 90) / 90 * active.maximumOpacity));
       if (alpha <= 0) continue;
@@ -1866,7 +2726,10 @@ function animateReflectionPulses(events, reflectors, lateEvents = [], durationSe
       context.arc(active.position.x, active.position.y, 2.5, 0, Math.PI * 2);
       context.fillStyle = `rgba(255, 255, 255, ${alpha})`;
       context.fill();
+      const positionMetres = pointsById.get(id)?.positionMetres;
+      if (positionMetres) lit.push({ positionMetres, alpha });
     }
+    if (state.terrainSpace) showSpacePulses(lit);
     if (firstActive < pulses.length) reflectionPulseAnimationFrame = requestAnimationFrame(draw);
     else clearReflectionPulses();
   };
@@ -1875,14 +2738,15 @@ function animateReflectionPulses(events, reflectors, lateEvents = [], durationSe
 
 const copyStereo = channels => channels.map(channel => channel.slice());
 
-function monitorRenderKey(reflectors, outputs) {
+function monitorRenderKey(placement, reflectors, outputs) {
   return JSON.stringify({
     audioSourceRevision,
-    source: state.source,
-    listener: state.listener,
+    source: placement.source,
+    listener: placement.listener,
+    directOccluded: placement.directOccluded,
     reflectors,
     heading: state.settings.heading,
-    echoField: state.settings.echoField,
+    echoField: renderSettings(),
     outputs
   });
 }
@@ -1918,7 +2782,7 @@ function monoAudioBuffer(context, samples, sampleRate = WAV_SAMPLE_RATE) {
 
 function createHrtfArrival(context, buffer, event) {
   const source = context.createBufferSource(); const gain = context.createGain();
-  const position = event.spatial === false ? null : hrtfPosition(state.listener, event.emitter, state.settings.heading);
+  const position = event.spatial === false ? null : hrtfPosition(activePlacement().listener, event.emitter, state.settings.heading);
   source.buffer = buffer; gain.gain.value = event.gain;
   let tail = source;
   const nodes = [source, gain];
@@ -1949,8 +2813,10 @@ function playHrtfMonitor(context, inputMono, lateChannels, reflectors, directArr
   const onset = plan.playOnset
     ? createHrtfArrival(context, inputBuffer, { frame: 0, gain: SOURCE_ONSET_GAIN * Math.SQRT1_2, spatial: false })
     : null;
+  const placement = propagation();
   const arrivals = (earlyEvents ?? createEarlyArrivalEvents({
-    source: state.source, listener: state.listener, reflectors, settings: state.settings.echoField, sampleRate: context.sampleRate
+    source: placement.source, listener: placement.listener, reflectors, settings: renderSettings(),
+    sampleRate: context.sampleRate, distanceMetres: placement.distanceMetres
   }))
     .map(event => createHrtfArrival(context, inputBuffer, event));
   if (plan.playDirectArrival) arrivals.push(createHrtfArrival(context, inputBuffer, directArrival));
@@ -1963,24 +2829,28 @@ function playHrtfMonitor(context, inputMono, lateChannels, reflectors, directArr
 async function monitorPlaybackData(context, renderedMode = false) {
   const inputMono = resampleToMono(importedAudioBuffer ?? await loadDefaultHandclap(context));
   const reflectors = exportReflectors();
+  const placement = propagation();
+  const settings = renderSettings();
   const hrtfMonitor = state.settings.panningMode === 'hrtf-live';
   const directArrival = createDirectArrivalEvent({
-    source: state.source, listener: state.listener, settings: state.settings.echoField,
-    sampleRate: renderedMode ? WAV_SAMPLE_RATE : context.sampleRate
+    source: placement.source, listener: placement.listener, settings,
+    sampleRate: renderedMode ? WAV_SAMPLE_RATE : context.sampleRate,
+    distanceMetres: placement.distanceMetres, occluded: placement.directOccluded
   });
   const earlyEvents = createEarlyArrivalEvents({
-    source: state.source, listener: state.listener, reflectors, settings: state.settings.echoField,
-    sampleRate: renderedMode ? WAV_SAMPLE_RATE : context.sampleRate
+    source: placement.source, listener: placement.listener, reflectors, settings,
+    sampleRate: renderedMode ? WAV_SAMPLE_RATE : context.sampleRate, distanceMetres: placement.distanceMetres
   });
   const plan = monitorArrivalPlan(directArrival, state.settings.arrivalsOnly);
   const outputs = hrtfMonitor ? ['late'] : plan.playDirectArrival ? ['wet'] : ['early', 'late'];
   const renderOptions = {
-    source: state.source, listener: state.listener, reflectors, heading: state.settings.heading,
-    settings: { ...state.settings.echoField, spatialAudio: true }, distanceMetres, inputMono, outputs,
+    source: placement.source, listener: placement.listener, reflectors, heading: state.settings.heading,
+    settings: { ...settings, spatialAudio: true }, distanceMetres: placement.distanceMetres,
+    directOccluded: placement.directOccluded, inputMono, outputs,
     earlyEvents: renderedMode ? earlyEvents : null,
     maximumVisualEvents: MAXIMUM_LATE_REFLECTION_PULSES
   };
-  const rendered = await renderMonitorAudio(monitorRenderKey(reflectors, outputs), renderOptions);
+  const rendered = await renderMonitorAudio(monitorRenderKey(placement, reflectors, outputs), renderOptions);
   return { inputMono, reflectors, hrtfMonitor, directArrival, earlyEvents, plan, rendered };
 }
 
@@ -2006,6 +2876,7 @@ $('#play-button').addEventListener('click', async () => {
     stopPlayback();
     return;
   }
+  if (!propagation().valid) return;
   if (state.settings.playbackMode === 'rendered' && renderedPlayback) {
     const context = getAudioContext();
     await context.resume();
@@ -2104,12 +2975,12 @@ function currentWorkspaceProject() {
   const center = map.getCenter();
   return createWorkspaceProject({
     project: state.project,
-    source: state.source,
-    listener: state.listener,
+    placements: { map: state.mapPlacement, terrain: state.terrainPlacements },
+    activeSpace: state.activeSpace,
     reflectors: state.reflectors,
     automaticReflectors,
+    terrainSpace: state.terrainSpace,
     structures: state.structures,
-    pointsLinked: state.pointsLinked,
     globalReflectionLevelDb: state.globalReflectionLevelDb,
     globalMaterial: state.globalMaterial,
     settings: state.settings,
@@ -2120,24 +2991,31 @@ function currentWorkspaceProject() {
 }
 
 function currentManifest(projectName = state.project.name) {
+  const placement = propagation();
+  const terrain = terrainActive();
   return createProjectManifest({
     projectId: state.project.id, projectName, createdAt: state.project.createdAt,
-    source: state.source, listener: state.listener, reflectors: exportReflectors(),
+    source: placement.source, listener: placement.listener, reflectors: exportReflectors(),
     globalReflectionLevelDb: state.globalReflectionLevelDb, globalMaterial: state.globalMaterial,
-    pointsLinked: state.pointsLinked, heading: state.settings.heading,
-    echoField: { enabled: echoFieldEnabled, radiusMetres: state.settings.echoFieldRadiusMetres, activeSurfaceCount: automaticReflectors.length },
-    echoFieldSettings: { ...state.settings.echoField, canonicalPanning: 'spatial-stereo', livePanningMode: state.settings.panningMode },
-    inputName: importedAudioName ?? DEFAULT_SOUND_NAME, inputDurationSeconds: inputDurationSeconds()
+    pointsLinked: activePlacement().pointsLinked, heading: state.settings.heading,
+    echoField: {
+      enabled: terrain || echoFieldEnabled, radiusMetres: state.settings.echoFieldRadiusMetres,
+      activeSurfaceCount: terrain ? audibleReflectors().length : automaticReflectors.length
+    },
+    echoFieldSettings: { ...renderSettings(), canonicalPanning: 'spatial-stereo', livePanningMode: state.settings.panningMode },
+    inputName: importedAudioName ?? DEFAULT_SOUND_NAME, inputDurationSeconds: inputDurationSeconds(),
+    terrainSpace: terrain ? state.terrainSpace : null, distanceMetres: placement.distanceMetres, directOccluded: placement.directOccluded
   });
 }
 
 function exportSizes() {
-  const settings = state.settings.echoField;
-  const geometry = { source: state.source, listener: state.listener };
+  const settings = renderSettings();
+  const placement = propagation();
+  const geometry = { source: placement.source, listener: placement.listener, distanceMetres: placement.distanceMetres };
   const { convolutionIrFrames, fdnIrFrames, timelineFrames } = exportFrameLayout({
     settings,
     earlyFrames: createEarlyArrivalEvents({ ...geometry, reflectors: exportReflectors(), settings }).map(event => event.frame + event.filter.length - 1),
-    directFrame: (() => { const event = createDirectArrivalEvent({ ...geometry, settings }); return event.frame + event.filter.length - 1; })(),
+    directFrame: (() => { const event = createDirectArrivalEvent({ ...geometry, settings, occluded: placement.directOccluded }); return event.frame + event.filter.length - 1; })(),
     inputFrames: Math.ceil(inputDurationSeconds() * WAV_SAMPLE_RATE)
   });
   return {
@@ -2150,6 +3028,13 @@ function exportSizes() {
 }
 
 function updateExportSummary() {
+  if (!propagation().valid) {
+    Object.keys(EXPORT_OUTPUTS_BY_SELECTION).concat('manifest').forEach(key => { $(`#export-size-${key}`).textContent = ''; });
+    $('#export-summary').textContent = 'Source and Listener must be inside the terrain.';
+    $('#export-field-note').hidden = true;
+    $('#export-submit').disabled = true;
+    return;
+  }
   const sizes = exportSizes();
   Object.entries(sizes).forEach(([key, bytes]) => { $(`#export-size-${key}`).textContent = formatBytes(bytes); });
   const selected = exportSelectionInputs().filter(input => input.checked).map(input => input.value);
@@ -2208,19 +3093,26 @@ $('#open-project-file').addEventListener('change', async event => {
   clearTimeout(echoFieldUpdateTimer);
   Object.assign(state, {
     project: opened.project,
-    source: opened.source,
-    listener: opened.listener,
+    activeSpace: opened.activeSpace,
+    mapPlacement: opened.placements.map,
+    terrainPlacements: opened.placements.terrain,
     reflectors: opened.reflectors,
     structures: opened.structures,
-    pointsLinked: opened.pointsLinked,
+    terrainSpace: opened.terrainSpace,
     globalReflectionLevelDb: opened.globalReflectionLevelDb,
     globalMaterial: opened.globalMaterial,
     settings: opened.settings
   });
   monitorRenderCache = null;
-  automaticReflectors = [];
+  automaticReflectors = opened.automaticReflectors;
+  terrainField = null;
+  terrainRevision += 1;
   selectedStructureId = null;
   setImageBackground(null, { transformGeometry: false });
+  syncTerrainLayers();
+  syncTerrainHandles();
+  syncTerrainControls();
+  syncSpacePanel();
   syncWorkspaceControls();
   map.jumpTo({ center: [opened.mapView.longitude, opened.mapView.latitude], zoom: opened.mapView.zoom });
   syncMarkers();
@@ -2242,6 +3134,7 @@ $('#export-form').addEventListener('submit', async event => {
   await new Promise(resolve => requestAnimationFrame(resolve));
   try {
     state.project.name = projectName; saveWorkspaceNow();
+    if (!propagation().valid) throw new Error('Source and Listener must be inside the terrain.');
     const manifest = currentManifest(projectName);
     const validation = validateProjectManifest(manifest);
     if (!validation.valid) throw new Error(`Project manifest is invalid: ${validation.errors.join('; ')}`);
@@ -2250,7 +3143,12 @@ $('#export-form').addEventListener('submit', async event => {
     const outputs = [...selected].flatMap(value => EXPORT_OUTPUTS_BY_SELECTION[value] ?? []);
     if (outputs.length) {
       const inputMono = resampleToMono(importedAudioBuffer ?? await loadDefaultHandclap(getAudioContext()));
-      const audio = await renderExportAudio({ source: state.source, listener: state.listener, reflectors: exportReflectors(), heading: state.settings.heading, settings: { ...state.settings.echoField, spatialAudio: true }, distanceMetres, inputMono, outputs });
+      const placement = propagation();
+      const audio = await renderExportAudio({
+        source: placement.source, listener: placement.listener, reflectors: exportReflectors(), heading: state.settings.heading,
+        settings: { ...renderSettings(), spatialAudio: true }, distanceMetres: placement.distanceMetres,
+        directOccluded: placement.directOccluded, inputMono, outputs
+      });
       const addWav = (suffix, channels) => files.push({ name: `${stem}-${suffix}.wav`, data: encodeFloat32Wav(channels) });
       if (selected.has('convolution')) addWav('ir-sampled-paths', audio.convolutionIr);
       if (selected.has('fdn')) addWav('ir-rendered-fdn', audio.fdnIr);

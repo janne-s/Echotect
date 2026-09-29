@@ -3,6 +3,7 @@ import { isValidCoordinate } from './geo.js';
 import { MATERIAL_LABELS } from './materials.js';
 import { boundedValue } from './range.js';
 import { validStructure } from './structures.js';
+import { parseTerrainSpace, serializeTerrainSpace } from './terrain-space.js';
 
 export const WORKSPACE_PROJECT_FORMAT = 'echotect-workspace';
 export const REFLECTION_LEVEL_RANGE = Object.freeze({ minimum: -18, maximum: -1, fallback: -6 });
@@ -65,19 +66,39 @@ function projectBackground(value) {
   };
 }
 
-export function createWorkspaceProject({ project, source, listener, reflectors, automaticReflectors, structures = [], pointsLinked, globalReflectionLevelDb, globalMaterial, settings, echoFieldEnabled, mapView, background = null, savedAt = new Date().toISOString() }) {
+function projectPlacement(value, label) {
+  if (!isValidCoordinate(value?.source) || !isValidCoordinate(value?.listener)) throw new Error(`${label} Source and Listener positions are invalid.`);
+  return {
+    source: { latitude: value.source.latitude, longitude: value.source.longitude },
+    listener: { latitude: value.listener.latitude, longitude: value.listener.longitude },
+    pointsLinked: Boolean(value.pointsLinked)
+  };
+}
+
+function projectTerrainPlacements(value) {
+  return {
+    exterior: projectPlacement(value?.exterior, 'Canyon'),
+    interior: projectPlacement(value?.interior, 'Chamber')
+  };
+}
+
+export function createWorkspaceProject({ project, placements, activeSpace = 'map', reflectors, automaticReflectors, structures = [], globalReflectionLevelDb, globalMaterial, settings, echoFieldEnabled, mapView, background = null, terrainSpace = null, savedAt = new Date().toISOString() }) {
   const manual = reflectorList(reflectors, 'Project reflectors');
   const automatic = reflectorList(automaticReflectors, 'Echo field reflectors');
   if (new Set([...manual, ...automatic].map(reflector => reflector.id)).size !== manual.length + automatic.length) throw new Error('All project reflector ids must be unique.');
+  const mapPlacement = projectPlacement(placements?.map, 'Map space');
+  const terrainPlacements = terrainSpace ? projectTerrainPlacements(placements?.terrain) : null;
   return {
     format: WORKSPACE_PROJECT_FORMAT,
     project: { id: project.id, name: project.name, createdAt: project.createdAt, savedAt },
     background: projectBackground(background),
     mapView,
-    geometry: { source, listener, pointsLinked, reflectors: manual, echoFieldReflectors: automatic, structures: structureList(structures) },
+    activeSpace: activeSpace === 'terrain' && terrainSpace ? 'terrain' : 'map',
+    geometry: { placements: { map: mapPlacement, terrain: terrainPlacements }, reflectors: manual, echoFieldReflectors: automatic, structures: structureList(structures) },
     levels: { globalReflectionLevelDb, globalMaterial },
     monitor: { heading: settings.heading, arrivalsOnly: settings.arrivalsOnly, panningMode: settings.panningMode, playbackMode: settings.playbackMode },
     echoField: { enabled: echoFieldEnabled, radiusMetres: settings.echoFieldRadiusMetres },
+    terrainSpace: terrainSpace ? serializeTerrainSpace(terrainSpace) : null,
     settings: settings.echoField
   };
 }
@@ -86,7 +107,6 @@ export function parseWorkspaceProject(text) {
   let value;
   try { value = JSON.parse(text); } catch { throw new Error('The selected file is not valid JSON.'); }
   if (value?.format !== WORKSPACE_PROJECT_FORMAT) throw new Error('The selected file is not an Echotect project.');
-  if (!isValidCoordinate(value.geometry?.source) || !isValidCoordinate(value.geometry?.listener)) throw new Error('Project Source and Listener positions are invalid.');
   if (typeof value.project?.id !== 'string' || !value.project.id || typeof value.project?.name !== 'string' || !value.project.name.trim()) throw new Error('Project identity is invalid.');
   const reflectors = reflectorList(value.geometry.reflectors, 'Project reflectors');
   const automaticReflectors = reflectorList(value.geometry.echoFieldReflectors, 'Echo field reflectors');
@@ -96,17 +116,19 @@ export function parseWorkspaceProject(text) {
   const globalMaterial = materialValues.has(value.levels?.globalMaterial) && value.levels.globalMaterial !== 'inherit' ? value.levels.globalMaterial : 'generic';
   const heading = boundedValue(value.monitor?.heading, { minimum: 0, maximum: 359, fallback: 0 });
   const radiusMetres = Math.max(10, Number.isFinite(value.echoField?.radiusMetres) ? value.echoField.radiusMetres : 100);
+  const terrainSpace = parseTerrainSpace(value.terrainSpace ?? null);
+  const mapPlacement = projectPlacement(value.geometry?.placements?.map, 'Map space');
+  const terrainPlacements = terrainSpace ? projectTerrainPlacements(value.geometry?.placements?.terrain) : null;
   const mapView = isValidCoordinate(value.mapView) && Number.isFinite(value.mapView.zoom)
     ? { latitude: value.mapView.latitude, longitude: value.mapView.longitude, zoom: Math.max(0, Math.min(24, value.mapView.zoom)) }
-    : { ...value.geometry.listener, zoom: 15 };
+    : { ...mapPlacement.listener, zoom: 15 };
   return {
     project: { id: value.project.id, name: value.project.name.trim(), createdAt: typeof value.project.createdAt === 'string' ? value.project.createdAt : new Date().toISOString() },
-    source: { latitude: value.geometry.source.latitude, longitude: value.geometry.source.longitude },
-    listener: { latitude: value.geometry.listener.latitude, longitude: value.geometry.listener.longitude },
+    placements: { map: mapPlacement, terrain: terrainPlacements },
+    activeSpace: value.activeSpace === 'terrain' && terrainSpace ? 'terrain' : 'map',
     reflectors,
     automaticReflectors,
     structures,
-    pointsLinked: Boolean(value.geometry.pointsLinked),
     globalReflectionLevelDb: boundedValue(value.levels?.globalReflectionLevelDb, REFLECTION_LEVEL_RANGE),
     globalMaterial,
     settings: {
@@ -119,6 +141,7 @@ export function parseWorkspaceProject(text) {
     },
     echoFieldEnabled: Boolean(value.echoField?.enabled),
     background: projectBackground(value.background),
+    terrainSpace,
     mapView
   };
 }

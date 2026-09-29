@@ -68,7 +68,8 @@
         <button type="button" data-tool="reflector"><span class="tool-symbol symbol-reflector" aria-hidden="true"></span>Add reflector</button>
         <button id="buildings-button" type="button" aria-pressed="false" title="Load building data">Buildings</button>
         <button id="echo-field-button" type="button" aria-pressed="false" title="Load building data first" disabled>Echo field</button>
-        <button id="echo-settings-button" class="icon-button" type="button" aria-label="Echo field settings" title="Echo field settings">⚙</button>
+        <button id="terrain-button" type="button" aria-pressed="false" title="Draw a terrain rectangle">Terrain</button>
+        <button id="echo-settings-button" class="icon-button" type="button" aria-label="Settings" title="Settings">⚙</button>
         <button id="image-background-button" type="button" aria-pressed="false">Image</button>
       </div>
       <input id="image-background-file" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp">
@@ -100,7 +101,7 @@
         </div>
         <div id="structure-panel" class="image-editor-panel structure-panel" hidden>
           <strong>Structure</strong>
-          <label for="structure-material">Material <select id="structure-material"><option value="inherit">Global</option><option value="generic">Generic</option><option value="concrete">Concrete</option><option value="glass">Glass</option><option value="brick">Brick</option><option value="stone">Stone</option><option value="metal">Metal</option><option value="wood">Wood</option><option value="vegetation">Vegetation</option></select></label>
+          <label for="structure-material">Material <select id="structure-material" data-material-options="inherit"></select></label>
           <div class="structure-actions">
             <button id="create-structure" class="primary" type="button">Create structure</button>
             <button id="delete-structure" class="danger" type="button" aria-label="Delete selected structure" title="Delete selected structure"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
@@ -143,6 +144,24 @@
           <button id="default-sound" type="button">Use handclap</button>
           <button id="reset-audio" type="button" title="Restart the audio engine if playback stops working.">Recover audio</button>
         </div>
+        <div id="space-panel" class="space-panel" hidden>
+          <div class="space-toolbar">
+            <div class="segmented" role="radiogroup" aria-label="Terrain space">
+              <button type="button" role="radio" data-space-mode="exterior" aria-checked="true">Canyon</button>
+              <button type="button" role="radio" data-space-mode="interior" aria-checked="false">Chamber</button>
+            </div>
+            <div class="segmented" role="tablist" aria-label="Space view">
+              <button type="button" role="tab" data-space-view="space" aria-selected="true">3D</button>
+              <button type="button" role="tab" data-space-view="section" aria-selected="false">Section</button>
+            </div>
+            <button id="space-detach" class="space-icon" type="button" aria-label="Open in its own window" title="Open in its own window" aria-pressed="false"><i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i></button>
+          </div>
+          <canvas id="space-canvas" class="space-canvas" aria-label="Terrain space"></canvas>
+          <label class="level-control" data-space-control="interior"><span>Floor <output id="space-floor-value"></output></span><input id="space-floor" type="range" step="1"></label>
+          <label class="level-control"><span>Scale <output id="space-scale-value"></output></span><input id="space-scale" type="range" min="0" max="1200" step="1"></label>
+          <label class="level-control"><span>Listener height <output id="space-listener-height-value"></output></span><input id="space-listener-height" type="range" min="0" max="1200" step="1"></label>
+          <label class="level-control"><span>Source height <output id="space-source-height-value"></output></span><input id="space-source-height" type="range" min="0" max="1200" step="1"></label>
+        </div>
       </section>
 
       <section>
@@ -150,16 +169,7 @@
           <h2>Reflection field</h2>
           <label class="compact-select">
             <span class="sr-only">Global material</span>
-            <select id="global-material" title="Global material">
-              <option value="generic">Generic</option>
-              <option value="concrete">Concrete</option>
-              <option value="glass">Glass</option>
-              <option value="brick">Brick</option>
-              <option value="stone">Stone</option>
-              <option value="metal">Metal</option>
-              <option value="wood">Wood</option>
-              <option value="vegetation">Vegetation</option>
-            </select>
+            <select id="global-material" title="Global material" data-material-options></select>
           </label>
           <button id="clear-reflectors" class="text-button" type="button">Clear</button>
         </div>
@@ -186,8 +196,12 @@
 
   <dialog id="echo-settings-dialog" class="modal settings-modal" tabindex="-1" aria-labelledby="echo-settings-title">
     <form method="dialog">
-      <h2 id="echo-settings-title">Echo field settings</h2>
-      <div class="settings-grid">
+      <h2 id="echo-settings-title">Settings</h2>
+      <div class="settings-tabs" role="tablist" aria-label="Settings">
+        <button id="settings-tab-echo" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-echo" data-settings-tab="echo">Echo field</button>
+        <button id="settings-tab-terrain" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-terrain" data-settings-tab="terrain" tabindex="-1">Terrain</button>
+      </div>
+      <div id="settings-panel-echo" class="settings-grid" role="tabpanel" aria-labelledby="settings-tab-echo">
         <label><span>Playback mode</span><select id="setting-playback-mode"><option value="live">Live</option><option value="rendered">Rendered</option></select></label>
         <label class="settings-checkbox"><span>Block reflections through buildings</span><input id="setting-building-occlusion" type="checkbox"></label>
         <label><span>Point reflections</span><select id="setting-point-mode"><option value="persistent">Persistent</option><option value="geometric">Geometric</option></select></label>
@@ -214,11 +228,26 @@
         <label data-late-mode="fdn"><span>Damping</span><span class="settings-control"><input id="setting-fdn-damping" type="range"><output id="setting-fdn-damping-value"></output></span></label>
         <label data-late-mode="fdn"><span>Geometry influence</span><span class="settings-control"><input id="setting-geometry-influence" type="range"><output id="setting-geometry-influence-value"></output></span></label>
       </div>
+      <div id="settings-panel-terrain" class="settings-grid" role="tabpanel" aria-labelledby="settings-tab-terrain" hidden>
+        <label><span>Material</span><select id="terrain-material" data-material-options></select></label>
+        <label><span>Scattering</span><span class="settings-control"><input id="terrain-scattering" type="range" min="0" max="1" step="0.05"><output id="terrain-scattering-value"></output></span></label>
+        <label><span>Ground reflection</span><span class="settings-control"><input id="terrain-ground" type="range" min="-25" max="6" step="1"><output id="terrain-ground-value"></output></span></label>
+        <output id="terrain-data" class="settings-data"></output>
+        <button id="delete-terrain" class="text-button terrain-delete" type="button">Delete terrain</button>
+      </div>
       <div class="modal-actions">
         <button value="cancel" type="submit">Cancel</button>
         <button class="primary" value="save" type="submit">Save settings</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="space-window" class="space-window" aria-label="Terrain space">
+    <div id="space-window-header" class="space-window-header">
+      <span id="space-window-title">Canyon</span>
+      <button id="space-window-close" class="space-icon" type="button" aria-label="Return to the side panel" title="Return to the side panel">×</button>
+    </div>
+    <canvas id="space-window-canvas" class="space-window-canvas" aria-label="Terrain space"></canvas>
   </dialog>
 
   <dialog id="export-dialog" class="modal export-modal" tabindex="-1" aria-labelledby="export-title">

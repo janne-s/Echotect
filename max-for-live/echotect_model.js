@@ -1,9 +1,9 @@
-/* Echotect manifest 1.0.0 delay-field model. ES5 for Max js. */
+/* Echotect manifest 2.0.0 delay-field model. ES5 for Max js. */
 (function (root) {
     "use strict";
 
     var FORMAT = "echotect-project";
-    var VERSION = "1.0.0";
+    var VERSION = "2.0.0";
     // Echotect allows 4096 early paths plus the direct arrival.
     // Max poly~ banks are split below their per-instance 1023 voice limit.
     var MAX_VOICES = 4097;
@@ -55,7 +55,9 @@
         requireFinite(errors, manifest.geometry.listener.headingDegrees, "geometry.listener.headingDegrees");
         requireFinite(errors, manifest.derived.direct.propagationSeconds, "derived.direct.propagationSeconds");
         requireFinite(errors, manifest.derived.direct.pathMetres, "derived.direct.pathMetres");
-        requireFinite(errors, manifest.derived.direct.levelDb, "derived.direct.levelDb");
+        if (manifest.derived.direct.occluded === true) {
+            if (manifest.derived.direct.levelDb !== null) errors.push("an occluded derived.direct has no level");
+        } else requireFinite(errors, manifest.derived.direct.levelDb, "derived.direct.levelDb");
         requireFinite(errors, manifest.derived.direct.arrivalAzimuthDegrees, "derived.direct.arrivalAzimuthDegrees");
 
         for (var i = 0; i < manifest.derived.earlyPaths.length; i++) {
@@ -70,7 +72,8 @@
 
     function pathsFromManifest(manifest) {
         var direct = manifest.derived.direct;
-        var paths = [{
+        // Terrain between Source and Listener blocks the direct path; it has no voice.
+        var paths = direct.occluded === true ? [] : [{
             id: "direct",
             kind: "direct",
             propagationSeconds: direct.propagationSeconds,

@@ -1,10 +1,9 @@
 # Echotect: Turn your hood into a delay
 
-Echotect turns real-world map geometry into musical delay structures. A Source,
-Listener, and Reflectors define propagation paths, while the Echo field derives
-additional Reflectors from nearby surfaces within the same model. The result can
-be auditioned in the browser, saved as an editable project, or exported as audio
-and portable project data for other applications.
+Echotect turns real-world map geometry into musical delay structures. Place a
+Source and Listener, then add Reflectors directly or derive them from nearby
+surfaces with the Echo field. Audition the result in the browser, save it as an
+editable project, or export it as audio and portable project data.
 
 See it live: [**https://janne-s.github.io/Echotect/**](https://janne-s.github.io/Echotect/)
 
@@ -12,25 +11,57 @@ See it live: [**https://janne-s.github.io/Echotect/**](https://janne-s.github.io
 
 ## How it works
 
-Place a Source and Listener, then add Reflectors directly or derive them from
-nearby surfaces with the Echo field. All Reflectors participate in the same path
-model, including reflections between surfaces. Longer paths arrive later and
-lose more level and high-frequency energy; materials shape their absorption,
-and the selected spatial mode controls how the result is heard in the browser.
-Projects remain editable, and audio can be exported as impulse responses, a wet
-render, or aligned stems.
+All Reflectors participate in the same path model, including reflections between
+surfaces. Longer paths arrive later and lose more level and high-frequency
+energy; materials shape their absorption, and the spatial mode controls how the
+result is heard. Audio can be exported as impulse responses, a wet render, or
+aligned stems.
 
-Use **Save** to store the editable project as a separate file and **Open** to
-restore its map geometry, reflection field, materials, and listening settings.
-Audio and project manifest exports remain available through **Export**.
+Use **Save** and **Open** for editable project files. Use **Export** for audio
+and project manifests.
 
 Use **Image** to replace the map with a PNG, JPEG, or WebP sketch. Calibrate its
 scale from a known distance in the image, rotate it as needed, and place Source,
 Listener, and Point Reflectors on top. The image is included in the saved project.
 
-Structures are editable polygons available in both Map and Image modes. Their
-edges provide reflective surfaces to the Echo field and remain editable in saved
-projects.
+Structures are editable polygons in Map and Image modes. Their edges provide
+reflective surfaces to the Echo field.
+
+Use **Terrain** to build the echo field from real elevation data. Drag a
+rectangle on the map; its terrain is loaded, drawn as a hillshade, and becomes
+the reflecting space, with paths running in three dimensions through the air.
+Drag the rectangle to capture another place, or reshape it from its corners.
+Press **Terrain** again to return to the map space; press it once more to reopen
+the saved terrain without drawing it again. Map, Canyon, and Chamber each
+remember their own Source and Listener placement. Delete the capture explicitly
+from the Terrain settings when it is no longer needed. While a terrain is active
+it is the only acoustic space: buildings, structures, and manual reflectors do
+not take part.
+
+The space panel shows a 3D view or a section through the Source and Listener and
+can open in its own window. Reflections light up in the 3D view during playback.
+
+- **Canyon / Chamber** — Canyon hears the air above the terrain: canyons,
+  valley sides, and mountain flanks reflect. Chamber is creative geometry: the
+  terrain's shape as a hollow above a flat floor, narrowing upward as the relief
+  does.
+- **Floor** — Sets the Chamber floor. Raising it narrows the cavity and splits
+  it under separate summits.
+- **Scale** — Scales the acoustic space from 1:100 to 10:1. The map keeps the
+  terrain at its real size; delays follow the scaled space.
+- **Listener height** / **Source height** — Height above the ground, or above
+  the floor in a Chamber, where it is limited by the ceiling overhead.
+  Canyon and Chamber remember their own heights and map positions when you
+  switch between them.
+
+The Terrain tab in the settings holds the surface:
+
+- **Material** — Sets the absorption of the whole terrain. Natural ground
+  materials use absorption computed from measured flow resistivity.
+- **Scattering** — Splits reflected energy between discrete specular echoes and
+  diffuse scattering.
+- **Ground reflection** — Adjusts the ground under the Source and Listener;
+  0 dB is the physical level and Off removes it.
 
 ## Echo field settings
 
@@ -60,7 +91,8 @@ projects.
 - **Late field** — Selects the Sampled paths response or the Feedback network.
 - **Late field level** — Adjusts the level of the late response in decibels.
 - **Response duration** — Sets the maximum Sampled paths response length.
-- **Echo field surfaces** — Limits how many nearby building surfaces are used.
+- **Echo field surfaces** — Limits how many nearby building or terrain surfaces
+  are used.
 - **Late path samples** — Sets how many sampled paths form the late response.
 - **Late field bounces** — Limits the number of surface bounces in the late
   field.
@@ -89,19 +121,13 @@ development.
 
 Map and building layers retain their required attribution in the application.
 OpenStreetMap data is © OpenStreetMap contributors. Overture Maps building data
-is licensed under ODbL.
+is licensed under ODbL. Terrain elevation comes from
+[Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) on AWS Open Data,
+compiled by Mapzen from SRTM, GMTED2010, NED, ETOPO1, and national datasets; see
+their [attribution list](https://github.com/tilezen/joerd/blob/master/docs/attribution.md).
 
 ## Support Echotect
 
-If you find Echotect useful, you can support its continued development:
-
-- **GitHub Sponsors** — support the open-source work, updates, and future
-  improvements directly.
-  [Become a GitHub Sponsor](https://github.com/sponsors/janne-s)
-- **Ko-fi** — make a one-off contribution to support the project.
-  [Support on Ko-fi](https://ko-fi.com/jannesarkela)
-
-Thank you for supporting independent open-source audio tools.
-
-See [**Sanara Creations**](https://www.sanaracreations.fi/) for my
-multidisciplinary work, both independently and in collaboration with others.
+Support development through [GitHub Sponsors](https://github.com/sponsors/janne-s)
+or [Ko-fi](https://ko-fi.com/jannesarkela). See
+[Sanara Creations](https://www.sanaracreations.fi/) for related work.

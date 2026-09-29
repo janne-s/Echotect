@@ -3,7 +3,7 @@ const test = require('node:test');
 const model = require('../echotect_model.js');
 
 const manifest = {
-  format: 'echotect-project', schemaVersion: '1.0.0', project: { name: 'Test' },
+  format: 'echotect-project', schemaVersion: '2.0.0', project: { name: 'Test' },
   geometry: { listener: { headingDegrees: 0 } },
   derived: {
     direct: { propagationSeconds: 1, pathMetres: 343, levelDb: -7.783322, arrivalAzimuthDegrees: 0 },
@@ -38,7 +38,7 @@ test('quad panning is constant power and heading rotates the field', () => {
 test('unsupported schema is rejected without fallback', () => {
   const incompatible = JSON.parse(JSON.stringify(manifest));
   incompatible.schemaVersion = '0.9.0';
-  assert.match(model.validate(incompatible).join(' '), /schemaVersion must be 1\.0\.0/);
+  assert.match(model.validate(incompatible).join(' '), /schemaVersion must be 2\.0\.0/);
 });
 
 test('the voice budget covers the complete Echotect early-path range plus the direct arrival', () => {
@@ -64,4 +64,20 @@ test('a manifest without a declared direct level is rejected', () => {
   const missing = JSON.parse(JSON.stringify(manifest));
   delete missing.derived.direct.levelDb;
   assert.match(model.validate(missing).join(' '), /derived\.direct\.levelDb/);
+});
+
+test('an occluded direct path has no voice and the reflections keep their order', () => {
+  const occluded = JSON.parse(JSON.stringify(manifest));
+  occluded.derived.direct.occluded = true;
+  occluded.derived.direct.levelDb = null;
+  assert.deepEqual(model.validate(occluded), []);
+  const paths = model.pathsFromManifest(occluded);
+  assert.deepEqual(paths.map(path => path.kind), ['reflection']);
+  assert.equal(paths[0].id, 'r1');
+});
+
+test('an occluded direct path must not declare a level', () => {
+  const contradictory = JSON.parse(JSON.stringify(manifest));
+  contradictory.derived.direct.occluded = true;
+  assert.match(model.validate(contradictory).join(' '), /occluded/);
 });

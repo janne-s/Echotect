@@ -1,17 +1,26 @@
 import { createDirectArrivalEvent, createEarlyArrivalEvents } from './arrivals.js';
 import { exportFrameLayout, lateFieldGain } from './export-layout.js';
-import { DISTANCE_METHOD, EARTH_RADIUS_METRES, soundSpeedMetresPerSecond } from './geo.js';
+import { DISTANCE_METHOD, distanceMetres as mapDistanceMetres, EARTH_RADIUS_METRES, soundSpeedMetresPerSecond } from './geo.js';
+import { serializeTerrainSpace, TERRAIN_DISTANCE_METHOD } from './terrain-space.js';
 import { WAV_CHANNELS, WAV_FORMAT, WAV_SAMPLE_RATE } from './wav.js';
 
 export const PROJECT_FORMAT = 'echotect-project';
-export const PROJECT_SCHEMA_VERSION = '1.0.0';
+export const PROJECT_SCHEMA_VERSION = '2.0.0';
 
 const point = value => ({ latitudeDegrees: value.latitude, longitudeDegrees: value.longitude });
+const placedPoint = value => ({
+  ...point(value),
+  ...(value.positionMetres ? { positionMetres: { east: value.positionMetres.x, north: value.positionMetres.y, up: value.positionMetres.z }, heightMetres: value.heightMetres } : {})
+});
 
-export function createProjectManifest({ projectId, projectName, createdAt, source, listener, reflectors, globalReflectionLevelDb, globalMaterial, pointsLinked, heading, echoField, echoFieldSettings, inputName, inputDurationSeconds }) {
+/**
+ * `terrainSpace` is present when a terrain is the echo field. Its Source, Listener, and reflectors
+ * then carry positions in the terrain frame, and distances are straight lines in that frame.
+ */
+export function createProjectManifest({ projectId, projectName, createdAt, source, listener, reflectors, globalReflectionLevelDb, globalMaterial, pointsLinked, heading, echoField, echoFieldSettings, inputName, inputDurationSeconds, terrainSpace = null, distanceMetres = mapDistanceMetres, directOccluded = false }) {
   const speedOfSound = soundSpeedMetresPerSecond(echoFieldSettings);
-  const direct = createDirectArrivalEvent({ source, listener, settings: echoFieldSettings });
-  const earlyPaths = createEarlyArrivalEvents({ source, listener, reflectors, settings: echoFieldSettings });
+  const direct = createDirectArrivalEvent({ source, listener, settings: echoFieldSettings, distanceMetres, occluded: directOccluded });
+  const earlyPaths = createEarlyArrivalEvents({ source, listener, reflectors, settings: echoFieldSettings, distanceMetres });
   const inputFrames = Math.ceil(inputDurationSeconds * WAV_SAMPLE_RATE);
   const { convolutionIrFrames, fdnIrFrames, timelineFrames } = exportFrameLayout({
     settings: echoFieldSettings, earlyFrames: earlyPaths.map(path => path.frame + path.filter.length - 1),
@@ -24,24 +33,31 @@ export function createProjectManifest({ projectId, projectName, createdAt, sourc
     schemaVersion: PROJECT_SCHEMA_VERSION,
     project: { id: projectId, name: projectName, createdAt, exportedAt: new Date().toISOString() },
     units: { coordinates: 'decimal-degrees-wgs84', distance: 'metres', time: 'seconds', frequency: 'hertz', level: 'decibels-relative-amplitude', audioSample: 'float-full-scale', angle: 'compass-degrees' },
-    propagation: { distanceMethod: DISTANCE_METHOD, earthRadiusMetres: EARTH_RADIUS_METRES, speedOfSoundMetresPerSecond: speedOfSound, geometricSpreadingReference: 'direct-path-or-shortest-first-reflection', atmosphericAbsorptionMethod: 'ISO 9613-1:1993' },
+    propagation: {
+      distanceMethod: terrainSpace ? TERRAIN_DISTANCE_METHOD : DISTANCE_METHOD,
+      ...(terrainSpace ? {} : { earthRadiusMetres: EARTH_RADIUS_METRES }),
+      speedOfSoundMetresPerSecond: speedOfSound, geometricSpreadingReference: 'direct-path-or-shortest-first-reflection', atmosphericAbsorptionMethod: 'ISO 9613-1:1993'
+    },
     geometry: {
-      source: point(source), listener: { ...point(listener), headingDegrees: heading }, pointsLinked,
+      source: placedPoint(source), listener: { ...placedPoint(listener), headingDegrees: heading }, pointsLinked,
       reflectors: reflectors.map(reflector => ({
-        id: reflector.id, position: point(reflector), levelDb: reflector.levelDb, material: reflector.material,
+        id: reflector.id, position: placedPoint(reflector), levelDb: reflector.levelDb, material: reflector.material,
         effectiveMaterial: reflector.effectiveMaterial, reflectionKind: reflector.reflectionKind ?? 'manual',
+        ...(reflector.terrainSurface ? { terrainSurface: reflector.terrainSurface, ground: reflector.ground } : {}),
         ...(Array.isArray(reflector.visibleReflectorIds) ? { visibleReflectorIds: reflector.visibleReflectorIds } : {}),
         ...(reflector.buildingEdge ? { building: { id: reflector.buildingId ?? null, edge: reflector.buildingEdge, facadeMaterial: reflector.facadeMaterial ?? null } } : {})
       }))
     },
     echoField: { enabled: echoField.enabled, radiusMetres: echoField.radiusMetres, activeSurfaceCount: echoField.activeSurfaceCount },
+    terrainSpace: terrainSpace ? serializeTerrainSpace(terrainSpace, { includeHeightfield: false }) : null,
     levels: { globalReflectionLevelDb, globalMaterial, normalization: false, clipping: false, limiter: false },
     renderSettings: structuredClone(echoFieldSettings), audioSource: { name: inputName, embedded: false, durationSeconds: inputDurationSeconds },
     derived: {
-      direct: { pathMetres: direct.pathMetres, propagationSeconds: direct.propagationSeconds, levelDb: direct.levelDb, octaveBandGains: direct.bandGains, arrivalAzimuthDegrees: direct.arrivalAzimuthDegrees },
+      direct: { pathMetres: direct.pathMetres, propagationSeconds: direct.propagationSeconds, occluded: direct.occluded, levelDb: direct.levelDb, octaveBandGains: direct.bandGains, arrivalAzimuthDegrees: direct.arrivalAzimuthDegrees, arrivalElevationDegrees: direct.arrivalElevationDegrees },
       earlyPaths: earlyPaths.map(path => ({
         reflectorIds: path.reflectorIds, finalReflectorId: path.finalReflectorId, pathMetres: path.pathMetres,
-        propagationSeconds: path.propagationSeconds, levelDb: path.levelDb, octaveBandGains: path.bandGains, arrivalAzimuthDegrees: path.arrivalAzimuthDegrees
+        propagationSeconds: path.propagationSeconds, levelDb: path.levelDb, octaveBandGains: path.bandGains,
+        arrivalAzimuthDegrees: path.arrivalAzimuthDegrees, arrivalElevationDegrees: path.arrivalElevationDegrees
       }))
     },
     exports: {
@@ -63,7 +79,9 @@ export function validateProjectManifest(manifest) {
   if (!Array.isArray(manifest?.geometry?.reflectors)) errors.push('geometry.reflectors must be an array');
   const ids = manifest?.geometry?.reflectors?.map(reflector => reflector.id) ?? [];
   if (ids.some(id => typeof id !== 'string' || !id) || new Set(ids).size !== ids.length) errors.push('reflector ids must be non-empty and unique');
-  if (!Number.isFinite(manifest?.derived?.direct?.levelDb)) errors.push('derived.direct.levelDb must be a finite number');
+  if (manifest?.derived?.direct?.occluded === true) {
+    if (manifest.derived.direct.levelDb !== null) errors.push('an occluded derived.direct has no level');
+  } else if (!Number.isFinite(manifest?.derived?.direct?.levelDb)) errors.push('derived.direct.levelDb must be a finite number');
   if (!['geometric', 'persistent'].includes(manifest?.renderSettings?.pointMode)) errors.push('renderSettings.pointMode is unsupported');
   if (!Number.isFinite(manifest?.renderSettings?.pointPersistence)) errors.push('renderSettings.pointPersistence must be finite');
   if (!['standard', 'custom', 'off'].includes(manifest?.renderSettings?.airMode)) errors.push('renderSettings.airMode is unsupported');

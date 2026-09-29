@@ -13,7 +13,7 @@ const manifest = () => createProjectManifest({
     materialColorationAmount: 1, cutoffDb: -90, fdnTailSeconds: 8, lateMode: 'convolution' }, inputName: 'handclap', inputDurationSeconds: .23
 });
 
-test('manifest 1.0.0 round-trips point settings and validates', () => {
+test('manifest 2.0.0 round-trips point settings and validates', () => {
   const roundTrip = JSON.parse(JSON.stringify(manifest()));
   assert.deepEqual(validateProjectManifest(roundTrip), { valid: true, errors: [] });
   assert.equal(roundTrip.units.distance, 'metres');

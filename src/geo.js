@@ -86,8 +86,8 @@ export function distanceMetres(a, b) {
   return 2 * EARTH_RADIUS_METRES * Math.asin(Math.sqrt(haversine));
 }
 
-export function directSoundMetrics(source, listener, speedOfSound = SPEED_OF_SOUND_METRES_PER_SECOND) {
-  const pathMetres = distanceMetres(source, listener);
+export function directSoundMetrics(source, listener, speedOfSound = SPEED_OF_SOUND_METRES_PER_SECOND, distance = distanceMetres) {
+  const pathMetres = distance(source, listener);
   return { pathMetres, propagationSeconds: propagationSeconds(pathMetres, speedOfSound) };
 }
 
@@ -97,19 +97,19 @@ export function hasDistinctDirectArrival(source, listener) {
   return isDistinctPath(distanceMetres(source, listener));
 }
 
-export function reflectionMetrics(source, listener, reflector, speedOfSound = SPEED_OF_SOUND_METRES_PER_SECOND) {
-  const listenerLegMetres = distanceMetres(listener, reflector);
-  const pathMetres = distanceMetres(source, reflector) + listenerLegMetres;
+export function reflectionMetrics(source, listener, reflector, speedOfSound = SPEED_OF_SOUND_METRES_PER_SECOND, distance = distanceMetres) {
+  const listenerLegMetres = distance(listener, reflector);
+  const pathMetres = distance(source, reflector) + listenerLegMetres;
   return { listenerLegMetres, pathMetres, propagationSeconds: propagationSeconds(pathMetres, speedOfSound) };
 }
 
-export function reflectionPathMetrics(source, listener, reflectors, speedOfSound = SPEED_OF_SOUND_METRES_PER_SECOND) {
+export function reflectionPathMetrics(source, listener, reflectors, speedOfSound = SPEED_OF_SOUND_METRES_PER_SECOND, distance = distanceMetres) {
   let pathMetres = 0;
   let previous = source;
   reflectors.forEach(reflector => {
-    pathMetres += distanceMetres(previous, reflector);
+    pathMetres += distance(previous, reflector);
     previous = reflector;
   });
-  pathMetres += distanceMetres(previous, listener);
+  pathMetres += distance(previous, listener);
   return { pathMetres, propagationSeconds: propagationSeconds(pathMetres, speedOfSound) };
 }
