@@ -892,6 +892,15 @@ function createTerrainWorker() {
   worker.addEventListener('error', event => {
     terrainBuildInFlight = false;
     console.error(event.message);
+    canonicalTerrainField = null;
+    terrainField = null;
+    monitorRenderCache = null;
+    invalidateRenderedPlayback();
+    syncTerrainResult();
+    if (terrainBuildQueued) {
+      terrainBuildQueued = false;
+      requestTerrainBuild();
+    }
   });
   return worker;
 }
@@ -911,8 +920,13 @@ function requestTerrainBuild() {
 
 function scheduleTerrainBuild() {
   clearTimeout(terrainBuildTimer);
-  terrainBuildTimer = setTimeout(requestTerrainBuild, TERRAIN_BUILD_DELAY_MS);
+  terrainBuildTimer = setTimeout(() => {
+    terrainBuildTimer = null;
+    requestTerrainBuild();
+  }, TERRAIN_BUILD_DELAY_MS);
 }
+
+const terrainBuildPending = () => terrainBuildTimer !== null || terrainBuildInFlight || terrainBuildQueued;
 
 function refreshActiveSpace() {
   monitorRenderCache = null;
@@ -3236,6 +3250,8 @@ $('#export-form').addEventListener('submit', async event => {
   try {
     state.project.name = projectName; saveWorkspaceNow();
     if (!propagation().valid) throw new Error('Source and Listener must be inside the terrain.');
+    if (terrainActive() && terrainBuildPending()) throw new Error('The terrain echo field is still being calculated. Export again in a moment.');
+    if (terrainActive() && !terrainField?.valid) throw new Error('The terrain echo field could not be calculated.');
     const manifest = currentManifest(projectName);
     const validation = validateProjectManifest(manifest);
     if (!validation.valid) throw new Error(`Project manifest is invalid: ${validation.errors.join('; ')}`);
