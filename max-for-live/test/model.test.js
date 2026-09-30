@@ -11,6 +11,11 @@ const manifest = {
   }
 };
 
+const controls = {
+  headingDegrees: 0, widthPercent: 100, scale: 1, directEnabled: true, reflectionsEnabled: true,
+  directLevelDb: 0, reflectionsLevelDb: 0, normalizeReflections: false, reflectionNormalizationDb: 0
+};
+
 test('accepts the exact manifest version and creates direct plus early voices', () => {
   assert.deepEqual(model.validate(manifest), []);
   const paths = model.pathsFromManifest(manifest);
@@ -57,7 +62,30 @@ test('the direct level comes from the manifest instead of being derived again', 
   declared.derived.direct.levelDb = -3;
   const [direct] = model.pathsFromManifest(declared);
   assert.equal(direct.levelDb, -3);
-  assert.ok(Math.abs(direct.levelGain - 10 ** (-3 / 20)) < 1e-12);
+  const config = model.renderConfig(direct, { ...controls, headingDegrees: 0, widthPercent: 100 });
+  const power = config.outputGains.reduce((sum, gain) => sum + gain * gain, 0);
+  assert.ok(Math.abs(Math.sqrt(power) - 10 ** (-3 / 20)) < 1e-12);
+});
+
+test('normalization lifts the loudest reflection to 0 dB, keeps the spread, and leaves the direct path', () => {
+  const quiet = JSON.parse(JSON.stringify(manifest));
+  quiet.derived.earlyPaths = [-48, -60].map((levelDb, index) => ({
+    reflectorIds: [`r${index}`], finalReflectorId: `r${index}`,
+    propagationSeconds: 2, pathMetres: 686, levelDb, arrivalAzimuthDegrees: 90
+  }));
+  const paths = model.pathsFromManifest(quiet);
+  const normalized = { ...controls, normalizeReflections: true, reflectionNormalizationDb: model.reflectionNormalizationDb(paths) };
+  assert.equal(normalized.reflectionNormalizationDb, 48);
+  assert.deepEqual(paths.map(path => model.effectiveLevelDb(path, normalized)), [quiet.derived.direct.levelDb, 0, -12]);
+  assert.deepEqual(paths.map(path => model.effectiveLevelDb(path, { ...normalized, normalizeReflections: false })), [quiet.derived.direct.levelDb, -48, -60]);
+  const gain = path => Math.hypot(...model.renderConfig(path, { ...normalized, reflectionsLevelDb: -6 }).outputGains);
+  assert.ok(Math.abs(gain(paths[1]) - 10 ** (-6 / 20)) < 1e-12);
+});
+
+test('a manifest with no reflections normalizes by nothing', () => {
+  const directOnly = JSON.parse(JSON.stringify(manifest));
+  directOnly.derived.earlyPaths = [];
+  assert.equal(model.reflectionNormalizationDb(model.pathsFromManifest(directOnly)), 0);
 });
 
 test('a manifest without a declared direct level is rejected', () => {
@@ -74,6 +102,17 @@ test('an occluded direct path has no voice and the reflections keep their order'
   const paths = model.pathsFromManifest(occluded);
   assert.deepEqual(paths.map(path => path.kind), ['reflection']);
   assert.equal(paths[0].id, 'r1');
+});
+
+test('an occluded direct path read through a Max Dict is still occluded', () => {
+  [undefined, 'null', ''].forEach(levelDb => {
+    const fromDict = JSON.parse(JSON.stringify(manifest));
+    fromDict.derived.direct.occluded = 1;
+    if (levelDb === undefined) delete fromDict.derived.direct.levelDb;
+    else fromDict.derived.direct.levelDb = levelDb;
+    assert.deepEqual(model.validate(fromDict), []);
+    assert.deepEqual(model.pathsFromManifest(fromDict).map(path => path.kind), ['reflection']);
+  });
 });
 
 test('an occluded direct path must not declare a level', () => {

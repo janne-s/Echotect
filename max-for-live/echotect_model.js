@@ -12,6 +12,11 @@
         return typeof value === "number" && isFinite(value);
     }
 
+    // Max Dict stores JSON true as 1 and has no null, so a manifest read through it carries neither.
+    function occluded(direct) {
+        return direct.occluded === true || direct.occluded === 1;
+    }
+
     function wrapSigned(degrees) {
         var value = (degrees + 180) % 360;
         if (value < 0) value += 360;
@@ -55,8 +60,8 @@
         requireFinite(errors, manifest.geometry.listener.headingDegrees, "geometry.listener.headingDegrees");
         requireFinite(errors, manifest.derived.direct.propagationSeconds, "derived.direct.propagationSeconds");
         requireFinite(errors, manifest.derived.direct.pathMetres, "derived.direct.pathMetres");
-        if (manifest.derived.direct.occluded === true) {
-            if (manifest.derived.direct.levelDb !== null) errors.push("an occluded derived.direct has no level");
+        if (occluded(manifest.derived.direct)) {
+            if (finite(manifest.derived.direct.levelDb)) errors.push("an occluded derived.direct has no level");
         } else requireFinite(errors, manifest.derived.direct.levelDb, "derived.direct.levelDb");
         requireFinite(errors, manifest.derived.direct.arrivalAzimuthDegrees, "derived.direct.arrivalAzimuthDegrees");
 
@@ -73,11 +78,10 @@
     function pathsFromManifest(manifest) {
         var direct = manifest.derived.direct;
         // Terrain between Source and Listener blocks the direct path; it has no voice.
-        var paths = direct.occluded === true ? [] : [{
+        var paths = occluded(direct) ? [] : [{
             id: "direct",
             kind: "direct",
             propagationSeconds: direct.propagationSeconds,
-            levelGain: dbToGain(direct.levelDb),
             levelDb: direct.levelDb,
             arrivalAzimuthDegrees: direct.arrivalAzimuthDegrees,
             pathMetres: direct.pathMetres
@@ -88,7 +92,6 @@
                 id: source.reflectorIds.join(">"),
                 kind: "reflection",
                 propagationSeconds: source.propagationSeconds,
-                levelGain: dbToGain(source.levelDb),
                 levelDb: source.levelDb,
                 arrivalAzimuthDegrees: source.arrivalAzimuthDegrees,
                 pathMetres: source.pathMetres,
@@ -99,11 +102,24 @@
         return paths;
     }
 
+    function reflectionNormalizationDb(paths) {
+        var loudest = -Infinity;
+        for (var i = 0; i < paths.length; i++) {
+            if (paths[i].kind === "reflection" && paths[i].levelDb > loudest) loudest = paths[i].levelDb;
+        }
+        return loudest > -Infinity ? -loudest : 0;
+    }
+
+    function effectiveLevelDb(path, controls) {
+        if (path.kind === "direct" || !controls.normalizeReflections) return path.levelDb;
+        return path.levelDb + controls.reflectionNormalizationDb;
+    }
+
     function renderConfig(path, controls) {
         var enabled = path.kind === "direct" ? controls.directEnabled : controls.reflectionsEnabled;
         var trimDb = path.kind === "direct" ? controls.directLevelDb : controls.reflectionsLevelDb;
         var spatial = quadGains(path.arrivalAzimuthDegrees, controls.headingDegrees, controls.widthPercent);
-        var gain = enabled ? path.levelGain * dbToGain(trimDb) : 0;
+        var gain = enabled ? dbToGain(effectiveLevelDb(path, controls) + trimDb) : 0;
         return {
             delayMilliseconds: Math.max(0, path.propagationSeconds * 1000 * controls.scale),
             outputGains: [spatial[0] * gain, spatial[1] * gain, spatial[2] * gain, spatial[3] * gain]
@@ -116,6 +132,8 @@
         MAX_VOICES: MAX_VOICES,
         validate: validate,
         pathsFromManifest: pathsFromManifest,
+        reflectionNormalizationDb: reflectionNormalizationDb,
+        effectiveLevelDb: effectiveLevelDb,
         quadGains: quadGains,
         renderConfig: renderConfig,
         wrapSigned: wrapSigned

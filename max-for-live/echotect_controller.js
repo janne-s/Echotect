@@ -22,6 +22,8 @@ var controls = {
     reflectionsEnabled: true,
     directLevelDb: 0,
     reflectionsLevelDb: 0,
+    normalizeReflections: false,
+    reflectionNormalizationDb: 0,
     reflectionCount: 0
 };
 
@@ -56,6 +58,7 @@ function read() {
         var importedPaths = EchotectModel.pathsFromManifest(manifest);
         paths = importedPaths.slice(0, EchotectModel.MAX_VOICES);
         omittedPathCount = importedPaths.length - paths.length;
+        controls.reflectionNormalizationDb = EchotectModel.reflectionNormalizationDb(paths);
         controls.reflectionCount = reflectionTotal();
         controls.headingDegrees = manifest.geometry.listener.headingDegrees;
         outlet(3, ["heading", controls.headingDegrees]);
@@ -100,7 +103,7 @@ function emitAll(resizeDelayMemory, updateMuteState) {
         outlet(1, ["bank", bank, "target", localVoice]);
         if (resizeDelayMemory) outlet(1, ["bank", bank, "capacity", DELAY_CAPACITY_MARGIN_MS + paths[i].propagationSeconds * 1000 * MAXIMUM_SCALE]);
         outlet(1, ["bank", bank, "config", config.delayMilliseconds].concat(config.outputGains));
-        outlet(2, ["path", i, paths[i].kind, paths[i].arrivalAzimuthDegrees, paths[i].propagationSeconds * controls.scale, paths[i].levelDb]);
+        outlet(2, ["path", i, paths[i].kind, paths[i].arrivalAzimuthDegrees, paths[i].propagationSeconds * controls.scale, EchotectModel.effectiveLevelDb(paths[i], controls)]);
     }
     outlet(2, ["heading", controls.headingDegrees]);
     outlet(2, ["width", controls.widthPercent]);
@@ -118,6 +121,7 @@ function direct_enable(value) { setControl("directEnabled", Number(value) !== 0)
 function reflections_enable(value) { setControl("reflectionsEnabled", Number(value) !== 0); }
 function direct_level(value) { setControl("directLevelDb", Number(value)); }
 function reflections_level(value) { setControl("reflectionsLevelDb", Number(value)); }
+function normalize_reflections(value) { setControl("normalizeReflections", Number(value) !== 0); }
 function reflection_density(value) {
     if (!manifest) return;
     var normalized = Math.max(0, Math.min(1, Number(value)));

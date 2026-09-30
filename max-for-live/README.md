@@ -28,6 +28,10 @@ The main controls are:
 - **Width** — Narrows or widens the spatial spread.
 - **Direct** — Adjusts the propagated direct sound.
 - **Reflections** — Adjusts the reflected sound.
+- **Normalize** — Raises or lowers all reflections by one amount so that the
+  loudest is at 0 dB, keeping the level differences between them. The direct
+  sound is unchanged, and Reflections applies on top. It affects only this
+  device, not the manifest or the WAV exports.
 - **Dry/Wet** — Balances the input and processed sound.
 
 ## Contents
@@ -48,13 +52,27 @@ Inspect the current patch and preserve unrelated UI edits before every change.
 
 Add this directory to **Max → Settings → File Preferences** with subfolder
 search enabled. Open `Echotect Field.maxproj`, then open the canonical patch.
-When copying the patch into a Max Audio Effect editor, confirm that Max Console
-shows:
+Copy it into a new, empty Max Audio Effect. Do not open and refreeze the
+existing `dist/Echotect Field.amxd`: a frozen device carries its own copies of
+the scripts and voice patch, and unfreezing it restores those copies instead of
+the files in this directory. Confirm that Max Console shows:
 
 ```text
 Echotect controller loaded
 Echotect field UI loaded
 ```
 
+A version number in either line means an older embedded copy is running.
+
 Choose **Freeze Device** before saving the distributable AMXD so that its
-required components are included with the device.
+required components are included with the device. Then check that it embeds
+the current manifest version and only the files in this directory:
+
+```sh
+strings "dist/Echotect Field.amxd" | grep 'VERSION = '
+strings "dist/Echotect Field.amxd" | grep -o 'echotect_[a-z_0-9]*\.\(js\|maxpat\)' | sort -u
+```
+
+The first line must match `VERSION` in `echotect_model.js`. The second must list
+`echotect_controller.js`, `echotect_field.js`, `echotect_model.js`, and
+`echotect_voice.maxpat`, with no suffixes.
