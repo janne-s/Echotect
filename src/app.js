@@ -13,7 +13,7 @@ import { hrtfPosition } from './spatial.js';
 import { createRectangleVertices, insertVertex, moveEdgeVertices, pointInStructureSpace, removeVertex, structureRing, structureVertices, structureWalls, validStructure } from './structures.js';
 import { createWorkspaceProject, parseWorkspaceProject, REFLECTION_LEVEL_RANGE } from './workspace-project.js';
 import { captureTerrain, MAXIMUM_CAPTURE_EXTENT_METRES, MINIMUM_CAPTURE_EXTENT_METRES, TERRAIN_PROVIDER, validCaptureBounds } from './terrain-tiles.js';
-import { EXTERIOR_HEIGHT_RANGE, floorRange, GROUND_REFLECTION_RANGE, normalizeTerrainSpace, parseTerrainSpace, placePoint, sectionProfile, segmentClear, serializeTerrainSpace, tallestCavityPoint, TERRAIN_SCALE_RANGE, terrainDistanceMetres, terrainFrame, terrainHeightMetres } from './terrain-space.js';
+import { EXTERIOR_HEIGHT_RANGE, floorRange, GROUND_REFLECTION_RANGE, normalizeTerrainSpace, parseTerrainSpace, placePoint, scaleTerrainField, sectionProfile, segmentClear, serializeTerrainSpace, tallestCavityPoint, TERRAIN_SCALE_RANGE, terrainDistanceMetres, terrainFrame, terrainHeightMetres } from './terrain-space.js';
 import { captureSpaceScene, DEFAULT_SPACE_VIEW, drawSection, drawSpace, paintSpacePulses } from './space-view.js';
 import { floorOutlineGeoJson, footprintCoordinates, footprintGeoJson, hillshadeDataUrl } from './terrain-view.js';
 import { encodeFloat32Wav, wavByteLength, WAV_SAMPLE_RATE } from './wav.js';
@@ -23,6 +23,7 @@ const OVERTURE_BUILDINGS_URL = 'pmtiles://https://data.source.coop/cholmes/overt
 const ACCENT_COLOR = '#ff4fae';
 const BUILDING_LAYER_IDS = ['overture-building-fill', 'overture-building-line'];
 const MAP_VIEW_STORAGE_KEY = 'echotect:map-view:v1';
+const BASEMAP_STORAGE_KEY = 'echotect:terrain-basemap:v1';
 const WORKSPACE_STORAGE_KEY = 'echotect:workspace:v4';
 const materialValues = new Set(Object.keys(MATERIAL_LABELS));
 const DEFAULT_HANDCLAP_DURATION_SECONDS = 0.2003125;
@@ -44,6 +45,15 @@ const STRUCTURE_VERTEX_HIT_RADIUS_PIXELS = 12;
 const DEFAULT_STRUCTURE_SIZE_METRES = 20;
 const MINIMUM_INITIAL_STRUCTURE_SIZE_METRES = .5;
 const OSM_TILE_URLS = ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'];
+const RELIEF_TILE_URLS = ['https://tile.opentopomap.org/{z}/{x}/{y}.png'];
+const BASEMAP_ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · Optional relief: DEM SRTM/Sonny, style © <a href="https://opentopomap.org/">OpenTopoMap</a> (<a href="https://github.com/der-stefan/OpenTopoMap/blob/master/LICENCE">CC BY-SA</a>)';
+const BASEMAP_RASTER_PAINT = Object.freeze({
+  'raster-saturation': -1,
+  'raster-contrast': .22,
+  'raster-brightness-min': .02,
+  'raster-brightness-max': .46,
+  'raster-fade-duration': 0
+});
 const MAXIMUM_REFLECTION_PULSES = 4800;
 const MAXIMUM_VISUALIZED_PATHS = 800;
 const MAXIMUM_LATE_REFLECTION_PULSES = 4000;
@@ -65,6 +75,14 @@ function storedMapView() {
     // A missing, blocked, or malformed local value should not prevent startup.
   }
   return { ...DEFAULT_MAP_VIEW };
+}
+
+function storedBasemap() {
+  try {
+    return localStorage.getItem(BASEMAP_STORAGE_KEY) === 'relief' ? 'relief' : 'map';
+  } catch {
+    return 'map';
+  }
 }
 
 const newProject = () => ({ id: crypto.randomUUID(), name: DEFAULT_PROJECT_NAME, createdAt: new Date().toISOString() });
@@ -219,6 +237,7 @@ let structureAreaDrag = null;
 let structureEdgeDrag = null;
 let suppressStructureEdgeClick = false;
 let terrainField = null;
+let canonicalTerrainField = null;
 let terrainWorker = null;
 let terrainRevision = 0;
 let terrainBuildInFlight = false;
@@ -232,6 +251,7 @@ let terrainLoading = null;
 let renderedTerrainImage = null;
 let cachedTerrainFrame = null;
 let storedHeightfield = null;
+let basemap = storedBasemap();
 const terrainHandles = [];
 
 const protocol = new pmtiles.Protocol();
@@ -245,18 +265,20 @@ const map = new maplibregl.Map({
   zoom: initialMapView.zoom,
   style: {
     version: 8,
-    sources: { osm: { type: 'raster', tiles: OSM_TILE_URLS, tileSize: 256, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' } },
-    layers: [{
-      id: 'osm',
-      type: 'raster',
-      source: 'osm',
-      paint: {
-        'raster-saturation': -1,
-        'raster-contrast': .22,
-        'raster-brightness-min': .02,
-        'raster-brightness-max': .46
+    sources: {
+      osm: {
+        type: 'raster', tiles: OSM_TILE_URLS, tileSize: 256,
+        attribution: BASEMAP_ATTRIBUTION
+      },
+      relief: {
+        type: 'raster', tiles: RELIEF_TILE_URLS, tileSize: 256, maxzoom: 17,
+        attribution: BASEMAP_ATTRIBUTION
       }
-    }]
+    },
+    layers: [
+      { id: 'osm', type: 'raster', source: 'osm', paint: { ...BASEMAP_RASTER_PAINT } },
+      { id: 'relief', type: 'raster', source: 'relief', layout: { visibility: 'none' }, paint: { ...BASEMAP_RASTER_PAINT } }
+    ]
   }
 });
 const mapContainer = map.getContainer();
@@ -276,6 +298,30 @@ map.once('load', () => {
   mapContainer.classList.remove('map-attribution-initializing');
 });
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
+
+function createBasemapToggle() {
+  const button = document.createElement('button');
+  button.className = 'basemap-button';
+  button.type = 'button';
+  button.innerHTML = '<i class="fa-solid fa-mountain" aria-hidden="true"></i>';
+  button.addEventListener('click', () => {
+    basemap = basemap === 'relief' ? 'map' : 'relief';
+    try { localStorage.setItem(BASEMAP_STORAGE_KEY, basemap); } catch { /* The view preference is optional. */ }
+    syncBasemap();
+  });
+  mapContainer.querySelector('.maplibregl-ctrl-bottom-left .maplibregl-ctrl-group')?.append(button);
+  return {
+    sync() {
+      const relief = basemap === 'relief';
+      button.setAttribute('aria-pressed', String(relief));
+      button.setAttribute('aria-label', relief ? 'Use street map' : 'Use relief map');
+      button.title = relief ? 'Relief map · switch to street map' : 'Street map · switch to relief map';
+    }
+  };
+}
+
+const basemapToggle = createBasemapToggle();
+basemapToggle.sync();
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }));
 
 map.on('moveend', () => {
@@ -435,6 +481,14 @@ function activeTerrainPlacement() { return state.terrainPlacements?.[state.terra
 function terrainAvailable() { return Boolean(state.terrainSpace && activeTerrainPlacement()); }
 function terrainActive() { return state.activeSpace === 'terrain' && terrainAvailable(); }
 function activePlacement() { return terrainActive() ? activeTerrainPlacement() : state.mapPlacement; }
+
+function syncBasemap() {
+  const relief = basemap === 'relief';
+  if (map.getLayer('osm')) map.setLayoutProperty('osm', 'visibility', relief ? 'none' : 'visible');
+  if (map.getLayer('relief')) map.setLayoutProperty('relief', 'visibility', relief ? 'visible' : 'none');
+  basemapToggle.sync();
+  collapseInitialMapAttribution();
+}
 const audibleReflectors = () => terrainActive()
   ? terrainField?.valid ? terrainField.reflectors : []
   : [...state.reflectors, ...automaticReflectors];
@@ -778,11 +832,18 @@ function syncTerrainControls() {
   const active = terrainActive();
   const available = terrainAvailable();
   const button = $('#terrain-button');
-  button.setAttribute('aria-pressed', String(active || terrainDrawArmed));
+  const drawButton = $('#terrain-draw-button');
+  button.setAttribute('aria-pressed', String(active || (!available && terrainDrawArmed)));
   const count = terrainField?.valid ? terrainField.reflectors.length : 0;
   button.textContent = active && count ? `Terrain · ${count}` : 'Terrain';
-  button.title = active ? 'Return to map space' : terrainDrawArmed ? 'Drag a rectangle on the map' : available ? 'Open saved terrain space' : 'Draw a terrain rectangle';
+  button.title = active ? 'Return to map space' : available ? 'Open saved terrain space' : terrainDrawArmed ? 'Drag a rectangle on the map' : 'Draw a terrain rectangle';
   button.disabled = Boolean(imageBackground);
+  $('#terrain-actions').classList.toggle('has-terrain', available);
+  drawButton.hidden = !available;
+  drawButton.disabled = Boolean(imageBackground || terrainLoading);
+  drawButton.setAttribute('aria-pressed', String(available && terrainDrawArmed));
+  drawButton.setAttribute('aria-label', terrainDrawArmed ? 'Cancel drawing new terrain' : 'Draw new terrain');
+  drawButton.title = terrainDrawArmed ? 'Cancel drawing new terrain' : 'Draw new terrain';
   if (terrainLoading) button.setAttribute('aria-busy', 'true');
   else button.removeAttribute('aria-busy');
   setEchoFieldButtonDisabled(!hasEchoFieldWalls());
@@ -817,7 +878,8 @@ function createTerrainWorker() {
     terrainBuildInFlight = false;
     if (data.revision === terrainRevision && state.terrainSpace) {
       if (data.error) console.error(data.error);
-      terrainField = data.error ? null : data.field;
+      canonicalTerrainField = data.error ? null : data.field;
+      terrainField = canonicalTerrainField ? scaleTerrainField(canonicalTerrainField, state.terrainSpace.scale) : null;
       monitorRenderCache = null;
       invalidateRenderedPlayback();
       syncTerrainResult();
@@ -854,6 +916,7 @@ function scheduleTerrainBuild() {
 
 function refreshActiveSpace() {
   monitorRenderCache = null;
+  syncBasemap();
   syncSpacePanel();
   syncTerrainLayers();
   syncTerrainHandles();
@@ -874,7 +937,10 @@ function setActiveSpace(next) {
     clearBuildingHover();
   }
   terrainRevision += 1;
-  if (active === 'terrain') terrainField = null;
+  if (active === 'terrain') {
+    canonicalTerrainField = null;
+    terrainField = null;
+  }
   refreshActiveSpace();
   scheduleSave();
 }
@@ -893,6 +959,7 @@ function setTerrainSpace(next, { activate = false } = {}) {
       clearBuildingHover();
     }
   }
+  canonicalTerrainField = null;
   terrainField = null;
   terrainRevision += 1;
   refreshActiveSpace();
@@ -1209,13 +1276,13 @@ function syncLinkControls() {
 }
 
 /** Moving geometry: routes, derived readouts, and a scheduled save. No card is rebuilt. */
-function renderGeometry() {
+function renderGeometry({ rebuildField = true } = {}) {
   syncRoutes();
   syncMarkerHeights();
   if (state.terrainSpace) syncSpacePanel();
   updateDirectPathMetrics();
   updateReflectionMetrics();
-  scheduleEchoFieldUpdate();
+  if (rebuildField) scheduleEchoFieldUpdate();
   scheduleSave();
 }
 
@@ -1295,6 +1362,7 @@ map.on('load', () => {
   map.addLayer({ id: 'terrain-draft', type: 'line', source: 'terrain-draft', paint: { 'line-color': ACCENT_COLOR, 'line-width': 2, 'line-dasharray': [2, 2] } });
   syncImageLayer();
   syncImageModeControls();
+  syncBasemap();
   syncTerrainLayers();
   syncTerrainHandles();
   syncTerrainControls();
@@ -1382,6 +1450,7 @@ function finishTerrainDraft() {
 document.addEventListener('mouseup', finishTerrainDraft);
 
 $('#terrain-button').addEventListener('click', () => {
+  if (terrainAvailable() && terrainDrawArmed) setTerrainDrawArmed(false);
   if (terrainActive()) {
     setActiveSpace('map');
     return;
@@ -1391,6 +1460,21 @@ $('#terrain-button').addEventListener('click', () => {
     return;
   }
   setTerrainDrawArmed(!terrainDrawArmed);
+});
+
+$('#terrain-draw-button').addEventListener('click', () => {
+  if (!terrainAvailable() || terrainLoading) return;
+  setTerrainDrawArmed(!terrainDrawArmed);
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || (!terrainDrawArmed && !terrainDraft)) return;
+  event.preventDefault();
+  const restoreDragPan = terrainDraft?.restoreDragPan;
+  terrainDraft = null;
+  map.getSource('terrain-draft')?.setData(terrainDraftGeoJson());
+  if (restoreDragPan) map.dragPan.enable();
+  setTerrainDrawArmed(false);
 });
 
 function nearestBuildingWall(feature, clickPoint) {
@@ -1825,6 +1909,7 @@ function updateTerrainSpace(changes, { rebuildImage = false } = {}) {
   if (!next) return;
   const modeChanged = next.mode !== state.terrainSpace.mode;
   state.terrainSpace = next;
+  canonicalTerrainField = null;
   terrainField = null;
   if (rebuildImage) renderedTerrainImage = null;
   syncTerrainLayers();
@@ -1833,6 +1918,20 @@ function updateTerrainSpace(changes, { rebuildImage = false } = {}) {
   syncTerrainControls();
   syncSpacePanel();
   renderGeometry();
+}
+
+/** Scale is a transform of the fixed 1:1 field, not a reason to search for new reflectors. */
+function updateTerrainScale(scale) {
+  const next = normalizeTerrainSpace({ ...state.terrainSpace, scale });
+  if (!next || next.scale === state.terrainSpace.scale) return;
+  state.terrainSpace = next;
+  terrainField = canonicalTerrainField ? scaleTerrainField(canonicalTerrainField, next.scale) : null;
+  monitorRenderCache = null;
+  invalidateRenderedPlayback();
+  syncTerrainLayers();
+  syncTerrainControls();
+  syncSpacePanel();
+  renderGeometry({ rebuildField: !canonicalTerrainField && !terrainBuildInFlight });
 }
 
 let spaceViewMode = 'space';
@@ -1886,10 +1985,11 @@ function scheduleSpaceDraw() {
 }
 
 function syncSpaceHeightSlider(role, placed) {
-  const maximum = placed.valid ? placed.maximumHeightMetres : EXTERIOR_HEIGHT_RANGE.maximum;
+  const maximum = placed.valid ? placed.maximumHeightSettingMetres : EXTERIOR_HEIGHT_RANGE.maximum;
+  const height = placed.heightSettingMetres ?? terrainHeightMetres(state.terrainSpace, role);
   const input = $(`#space-${role}-height`);
   input.dataset.maximum = String(maximum);
-  if (document.activeElement !== input) input.value = geometricPosition(Math.min(maximum, placed.heightMetres), EXTERIOR_HEIGHT_RANGE.minimum, maximum);
+  if (document.activeElement !== input) input.value = geometricPosition(Math.min(maximum, height), EXTERIOR_HEIGHT_RANGE.minimum, maximum);
   $(`#space-${role}-height-value`).textContent = placed.valid ? formatHeight(placed.heightMetres) : '—';
 }
 
@@ -1935,7 +2035,7 @@ $('#space-floor').addEventListener('input', event => {
 });
 
 $('#space-scale').addEventListener('input', event => {
-  updateTerrainSpace({ scale: geometricValue(Number(event.currentTarget.value), TERRAIN_SCALE_RANGE.minimum, TERRAIN_SCALE_RANGE.maximum) });
+  updateTerrainScale(geometricValue(Number(event.currentTarget.value), TERRAIN_SCALE_RANGE.minimum, TERRAIN_SCALE_RANGE.maximum));
 });
 
 ['listener', 'source'].forEach(role => {
@@ -3105,6 +3205,7 @@ $('#open-project-file').addEventListener('change', async event => {
   });
   monitorRenderCache = null;
   automaticReflectors = opened.automaticReflectors;
+  canonicalTerrainField = null;
   terrainField = null;
   terrainRevision += 1;
   selectedStructureId = null;

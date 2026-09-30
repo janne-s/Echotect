@@ -222,12 +222,48 @@ input[type="range"]:focus-visible {
 .map-tools button.active .symbol-source {
   background: #111;
 }
+.terrain-actions {
+  display: inline-flex;
+}
+.terrain-actions.has-terrain #terrain-button {
+  border-radius: 2px 0 0 2px;
+}
+.terrain-actions .terrain-draw-button {
+  width: 29px;
+  justify-content: center;
+  margin-left: -1px;
+  padding-inline: 6px;
+  border-radius: 0 2px 2px 0;
+  font-weight: 700;
+}
+.terrain-actions button:hover,
+.terrain-actions button:focus-visible {
+  position: relative;
+  z-index: 1;
+}
 .maplibregl-ctrl-bottom-left .maplibregl-ctrl-group {
   display: flex;
 }
 .maplibregl-ctrl-bottom-left .maplibregl-ctrl-group button + button {
   border-top: 0;
   border-left: 1px solid #ddd;
+}
+.basemap-button {
+  display: grid;
+  place-items: center;
+  color: #333;
+  font-size: .88rem;
+}
+.maplibregl-ctrl-group button.basemap-button:not(:disabled):hover {
+  color: #111;
+  background: #f3b6d6;
+}
+.maplibregl-ctrl-group button.basemap-button[aria-pressed="true"] {
+  color: #111;
+  background: var(--accent);
+}
+.maplibregl-ctrl-group button.basemap-button[aria-pressed="true"]:hover {
+  background: #ff78bd;
 }
 .map-attribution-initializing .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-inner {
   display: none;
@@ -914,6 +950,7 @@ input[type="range"]:focus-visible {
 }
 .space-window {
   position: fixed;
+  z-index: 1;
   inset: auto;
   top: 90px;
   left: 90px;

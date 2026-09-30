@@ -22,6 +22,7 @@
   <link rel="canonical" href="https://janne-s.github.io/Echotect/">
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
+  <link rel="preconnect" href="https://tile.opentopomap.org">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css"
     integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="anonymous">
   <link rel="stylesheet" href="assets/vendor/fontawesome/css/fontawesome.min.css">
@@ -68,7 +69,10 @@
         <button type="button" data-tool="reflector"><span class="tool-symbol symbol-reflector" aria-hidden="true"></span>Add reflector</button>
         <button id="buildings-button" type="button" aria-pressed="false" title="Load building data">Buildings</button>
         <button id="echo-field-button" type="button" aria-pressed="false" title="Load building data first" disabled>Echo field</button>
-        <button id="terrain-button" type="button" aria-pressed="false" title="Draw a terrain rectangle">Terrain</button>
+        <span id="terrain-actions" class="terrain-actions">
+          <button id="terrain-button" type="button" aria-pressed="false" title="Draw a terrain rectangle">Terrain</button>
+          <button id="terrain-draw-button" class="terrain-draw-button" type="button" aria-label="Draw new terrain" title="Draw new terrain" aria-pressed="false" hidden>+</button>
+        </span>
         <button id="echo-settings-button" class="icon-button" type="button" aria-label="Settings" title="Settings">⚙</button>
         <button id="image-background-button" type="button" aria-pressed="false">Image</button>
       </div>

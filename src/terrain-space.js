@@ -243,15 +243,30 @@ export function placePoint(frame, point, heightMetres) {
   const world = frame.worldFromPoint(point);
   const surface = frame.surfaceZ(world.x, world.y);
   const base = { latitude: point.latitude, longitude: point.longitude };
-  if (!Number.isFinite(surface)) return { ...base, valid: false, heightMetres, maximumHeightMetres: null, reason: 'outside' };
+  const scaledHeight = height => height * frame.scale;
+  if (!Number.isFinite(surface)) return { ...base, valid: false, heightMetres: scaledHeight(heightMetres), heightSettingMetres: heightMetres, maximumHeightMetres: null, maximumHeightSettingMetres: null, reason: 'outside' };
   if (frame.mode === 'exterior') {
     const height = Math.min(EXTERIOR_HEIGHT_RANGE.maximum, Math.max(EXTERIOR_HEIGHT_RANGE.minimum, heightMetres));
-    return { ...base, valid: true, heightMetres: height, maximumHeightMetres: EXTERIOR_HEIGHT_RANGE.maximum, positionMetres: { x: world.x, y: world.y, z: surface + height } };
+    return {
+      ...base, valid: true,
+      heightMetres: scaledHeight(height), heightSettingMetres: height,
+      maximumHeightMetres: scaledHeight(EXTERIOR_HEIGHT_RANGE.maximum), maximumHeightSettingMetres: EXTERIOR_HEIGHT_RANGE.maximum,
+      positionMetres: { x: world.x, y: world.y, z: surface + scaledHeight(height) }
+    };
   }
-  const maximumHeightMetres = surface - frame.floorZ - CAVITY_CLEARANCE_METRES;
-  if (maximumHeightMetres < CAVITY_CLEARANCE_METRES) return { ...base, valid: false, heightMetres, maximumHeightMetres: null, reason: 'outside-cavity' };
-  const height = Math.min(maximumHeightMetres, Math.max(CAVITY_CLEARANCE_METRES, heightMetres));
-  return { ...base, valid: true, heightMetres: height, maximumHeightMetres, positionMetres: { x: world.x, y: world.y, z: frame.floorZ + height } };
+  const maximumHeightSettingMetres = (surface - frame.floorZ) / frame.scale - CAVITY_CLEARANCE_METRES;
+  if (maximumHeightSettingMetres < CAVITY_CLEARANCE_METRES) return {
+    ...base, valid: false,
+    heightMetres: scaledHeight(heightMetres), heightSettingMetres: heightMetres,
+    maximumHeightMetres: null, maximumHeightSettingMetres: null, reason: 'outside-cavity'
+  };
+  const height = Math.min(maximumHeightSettingMetres, Math.max(CAVITY_CLEARANCE_METRES, heightMetres));
+  return {
+    ...base, valid: true,
+    heightMetres: scaledHeight(height), heightSettingMetres: height,
+    maximumHeightMetres: scaledHeight(maximumHeightSettingMetres), maximumHeightSettingMetres,
+    positionMetres: { x: world.x, y: world.y, z: frame.floorZ + scaledHeight(height) }
+  };
 }
 
 export const terrainDistanceMetres = (a, b) => Math.hypot(
@@ -574,8 +589,9 @@ export function terrainVisibility(frame, reflectors) {
   return visible;
 }
 
-/** Everything the echo field needs from a terrain space for one Source and Listener placement. */
-export function buildTerrainField({ space, facets = null, source, listener, globalReflectionLevelDb, maxSurfaces, speedOfSound }) {
+/** Everything the echo field needs from an unscaled terrain and one Source and Listener placement. */
+export function buildCanonicalTerrainField({ space, facets = null, source, listener, globalReflectionLevelDb, maxSurfaces, speedOfSound }) {
+  if (space.scale !== 1) throw new RangeError('A canonical terrain field must use scale 1.');
   const frame = terrainFrame(space);
   const placedSource = placePoint(frame, source, terrainHeightMetres(space, 'source'));
   const placedListener = placePoint(frame, listener, terrainHeightMetres(space, 'listener'));
@@ -595,6 +611,43 @@ export function buildTerrainField({ space, facets = null, source, listener, glob
     reflectors,
     directOccluded: !segmentClear(frame, placedSource.positionMetres, placedListener.positionMetres)
   };
+}
+
+const scaledPosition = (position, scale) => position ? {
+  x: position.x * scale,
+  y: position.y * scale,
+  z: position.z * scale
+} : position;
+
+const scaledPlacedPoint = (point, scale) => ({
+  ...point,
+  heightMetres: point.heightMetres * scale,
+  maximumHeightMetres: point.maximumHeightMetres === null ? null : point.maximumHeightMetres * scale,
+  ...(point.positionMetres ? { positionMetres: scaledPosition(point.positionMetres, scale) } : {})
+});
+
+/** Applies acoustic scale after the reflector field has been fixed at 1:1. Map positions stay put. */
+export function scaleTerrainField(field, scale) {
+  return {
+    ...field,
+    source: scaledPlacedPoint(field.source, scale),
+    listener: scaledPlacedPoint(field.listener, scale),
+    reflectors: field.reflectors.map(reflector => ({
+      ...reflector,
+      positionMetres: scaledPosition(reflector.positionMetres, scale),
+      ...(Array.isArray(reflector.visibleReflectorIds) ? { visibleReflectorIds: [...reflector.visibleReflectorIds] } : {})
+    }))
+  };
+}
+
+/** Builds a stable 1:1 field, then uniformly scales every acoustic position in that field. */
+export function buildTerrainField({ space, facets = null, source, listener, globalReflectionLevelDb, maxSurfaces, speedOfSound }) {
+  const canonicalSpace = space.scale === 1 ? space : { ...space, scale: 1 };
+  const field = buildCanonicalTerrainField({
+    space: canonicalSpace, facets: space.scale === 1 ? facets : null,
+    source, listener, globalReflectionLevelDb, maxSurfaces, speedOfSound
+  });
+  return scaleTerrainField(field, space.scale);
 }
 
 /** Line segments where the ceiling meets the floor, in map coordinates, for the interior outline. */

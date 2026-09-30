@@ -137,21 +137,41 @@ test('ground reflection level moves only the ground under the points', () => {
   assert.deepEqual(off.distant, physical.distant);
 });
 
-test('the acoustic scale multiplies every specular path and keeps its level, with the map unchanged', () => {
+test('the acoustic scale transforms the fixed field without moving it on the map', () => {
   const canyon = (x, y) => 40 * Math.sin(x / 60) + 25 * Math.cos(y / 45) + .5 * Math.abs(x);
   const measure = scale => {
-    const space = syntheticSpace(canyon, undefined, { scattering: 0, scale, ...terrainHeights(20 * scale) });
+    const space = syntheticSpace(canyon, undefined, { scattering: .5, scale, ...terrainHeights(20) });
     const result = field(space, at(-60, 30), at(80, -40));
-    return specular(result).map(reflector => ({ id: reflector.id, metres: reflectionPathMetres(result, reflector), levelDb: reflector.levelDb }))
-      .sort((a, b) => a.id < b.id ? -1 : 1);
+    return {
+      source: result.source,
+      listener: result.listener,
+      reflectors: result.reflectors.map(reflector => ({
+        id: reflector.id,
+        latitude: reflector.latitude,
+        longitude: reflector.longitude,
+        positionMetres: reflector.positionMetres,
+        metres: reflectionPathMetres(result, reflector),
+        levelDb: reflector.levelDb
+      }))
+      .sort((a, b) => a.id < b.id ? -1 : 1)
+    };
   };
   const base = measure(1);
   const doubled = measure(2);
-  assert.ok(base.length > 0);
-  assert.deepEqual(doubled.map(item => item.id), base.map(item => item.id));
-  doubled.forEach((item, index) => {
-    assert.ok(Math.abs(item.metres - 2 * base[index].metres) < 1e-6);
-    assert.ok(Math.abs(item.levelDb - base[index].levelDb) < 1e-6);
+  assert.ok(base.reflectors.length > 0);
+  assert.deepEqual(doubled.reflectors.map(item => item.id), base.reflectors.map(item => item.id));
+  assert.deepEqual(
+    doubled.reflectors.map(item => [item.latitude, item.longitude, item.levelDb]),
+    base.reflectors.map(item => [item.latitude, item.longitude, item.levelDb])
+  );
+  ['source', 'listener'].forEach(role => {
+    assert.equal(doubled[role].heightMetres, 2 * base[role].heightMetres);
+    assert.equal(doubled[role].heightSettingMetres, base[role].heightSettingMetres);
+    Object.keys(base[role].positionMetres).forEach(axis => assert.ok(Math.abs(doubled[role].positionMetres[axis] - 2 * base[role].positionMetres[axis]) < 1e-6));
+  });
+  doubled.reflectors.forEach((item, index) => {
+    Object.keys(item.positionMetres).forEach(axis => assert.ok(Math.abs(item.positionMetres[axis] - 2 * base.reflectors[index].positionMetres[axis]) < 1e-6));
+    assert.ok(Math.abs(item.metres - 2 * base.reflectors[index].metres) < 1e-6);
   });
 });
 
@@ -215,7 +235,7 @@ test('terrain distances agree with the project haversine distance on level groun
 
 test('the acoustic scale leaves reflection points where the terrain is on the map', () => {
   const canyon = (x, y) => 40 * Math.sin(x / 60) + 25 * Math.cos(y / 45) + .5 * Math.abs(x);
-  const positions = scale => field(syntheticSpace(canyon, undefined, { scattering: 0, scale, ...terrainHeights(20 * scale) }), at(-60, 30), at(80, -40))
+  const positions = scale => field(syntheticSpace(canyon, undefined, { scattering: 0, scale, ...terrainHeights(20) }), at(-60, 30), at(80, -40))
     .reflectors.map(reflector => [reflector.latitude, reflector.longitude]);
   const base = positions(1);
   positions(3).forEach(([latitude, longitude], index) => {

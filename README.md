@@ -32,11 +32,14 @@ rectangle on the map; its terrain is loaded, drawn as a hillshade, and becomes
 the reflecting space, with paths running in three dimensions through the air.
 Drag the rectangle to capture another place, or reshape it from its corners.
 Press **Terrain** again to return to the map space; press it once more to reopen
-the saved terrain without drawing it again. Map, Canyon, and Chamber each
+the saved terrain without drawing it again. Use the **+** beside Terrain to draw
+a replacement elsewhere; the saved terrain remains until the new one loads.
+Map, Canyon, and Chamber each
 remember their own Source and Listener placement. Delete the capture explicitly
 from the Terrain settings when it is no longer needed. While a terrain is active
 it is the only acoustic space: buildings, structures, and manual reflectors do
-not take part.
+not take part. The mountain button beside the map zoom controls switches between
+the street map and shaded relief in every mode.
 
 The space panel shows a 3D view or a section through the Source and Listener and
 can open in its own window. Reflections light up in the 3D view during playback.
@@ -47,8 +50,10 @@ can open in its own window. Reflections light up in the 3D view during playback.
   does.
 - **Floor** — Sets the Chamber floor. Raising it narrows the cavity and splits
   it under separate summits.
-- **Scale** — Scales the acoustic space from 1:100 to 10:1. The map keeps the
-  terrain at its real size; delays follow the scaled space.
+- **Scale** — Uniformly scales the fixed acoustic space from 1:100 to 10:1,
+  including the terrain, Source, Listener, and reflection paths. Their map
+  positions and relative 3D geometry stay unchanged; distances and delays
+  follow the scaled space.
 - **Listener height** / **Source height** — Height above the ground, or above
   the floor in a Chamber, where it is limited by the ceiling overhead.
   Canyon and Chamber remember their own heights and map positions when you
@@ -121,7 +126,9 @@ development.
 
 Map and building layers retain their required attribution in the application.
 OpenStreetMap data is © OpenStreetMap contributors. Overture Maps building data
-is licensed under ODbL. Terrain elevation comes from
+is licensed under ODbL. The optional relief map uses OpenStreetMap data and
+SRTM/Sonny elevation with the OpenTopoMap style under CC BY-SA. Terrain capture
+elevation comes from
 [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) on AWS Open Data,
 compiled by Mapzen from SRTM, GMTED2010, NED, ETOPO1, and national datasets; see
 their [attribution list](https://github.com/tilezen/joerd/blob/master/docs/attribution.md).
