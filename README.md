@@ -17,56 +17,51 @@ energy; materials shape their absorption, and the spatial mode controls how the
 result is heard. Audio can be exported as impulse responses, a wet render, or
 aligned stems.
 
+Map, Image, and Terrain are independent layers, and only the active one is
+heard. Map and Image share the Source, Listener, reflectors, and structures;
+Terrain has its own Source and Listener.
+
 Use **Save** and **Open** for editable project files. Use **Export** for audio
 and project manifests.
-
-Use **Image** to replace the map with a PNG, JPEG, or WebP sketch. Calibrate its
-scale from a known distance in the image, rotate it as needed, and place Source,
-Listener, and Point Reflectors on top. The image is included in the saved project.
 
 Structures are editable polygons in Map and Image modes. Their edges provide
 reflective surfaces to the Echo field.
 
-Use **Terrain** to build the echo field from real elevation data. Drag a
-rectangle on the map; its terrain is loaded, drawn as a hillshade, and becomes
-the reflecting space, with paths running in three dimensions through the air.
-Drag the rectangle to capture another place, or reshape it from its corners.
-Press **Terrain** again to return to the map space; press it once more to reopen
-the saved terrain without drawing it again. Use the **+** beside Terrain to draw
-a replacement elsewhere; the saved terrain remains until the new one loads.
-Map, Canyon, and Chamber each
-remember their own Source and Listener placement. Delete the capture explicitly
-from the Terrain settings when it is no longer needed. While a terrain is active
-it is the only acoustic space: buildings, structures, and manual reflectors do
-not take part. The mountain button beside the map zoom controls switches between
-the street map and shaded relief in every mode.
+## Buildings
 
-The space panel shows a 3D view or a section through the Source and Listener and
-can open in its own window. Reflections light up in the 3D view during playback.
+- **Buildings** — Shows building footprints on the map.
 
-- **Canyon / Chamber** — Canyon hears the air above the terrain: canyons,
-  valley sides, and mountain flanks reflect. Chamber is creative geometry: the
-  terrain's shape as a hollow above a flat floor, narrowing upward as the relief
-  does.
-- **Floor** — Sets the Chamber floor. Raising it narrows the cavity and splits
-  it under separate summits.
-- **Scale** — Uniformly scales the fixed acoustic space from 1:100 to 10:1,
-  including the terrain, Source, Listener, and reflection paths. Their map
-  positions and relative 3D geometry stay unchanged; distances and delays
-  follow the scaled space.
-- **Listener height** / **Source height** — Height above the ground, or above
-  the floor in a Chamber, where it is limited by the ceiling overhead.
-  Canyon and Chamber remember their own heights and map positions when you
-  switch between them.
+## Image
 
-The Terrain tab in the settings holds the surface:
+- **Image** — Places a PNG, JPEG, or WebP image over the map. The image is saved
+  in the project.
+- **Scale** — Sets the image scale from a known distance between two points.
+- **Rotation** — Rotates the image.
+- **Opacity** — Sets how much of the map shows through the image.
 
-- **Material** — Sets the absorption of the whole terrain. Natural ground
-  materials use absorption computed from measured flow resistivity.
-- **Scattering** — Splits reflected energy between discrete specular echoes and
-  diffuse scattering.
-- **Ground reflection** — Adjusts the ground under the Source and Listener;
-  0 dB is the physical level and Off removes it.
+## Terrain
+
+- **Terrain** — Uses the elevation data inside a drawn rectangle as the echo
+  field, or switches between the map and the saved terrain. The rectangle can
+  be moved and reshaped.
+- **+** — Draws a new terrain in place of the saved one.
+- **Relief** — The mountain button beside the zoom controls switches the map to
+  shaded relief.
+- **Space panel** — Shows the terrain in 3D or as a section through the Source
+  and Listener, in the side panel or its own window.
+- **Canyon / Chamber** — Canyon reflects from the terrain surface. Chamber uses
+  the terrain as a hollow above a flat floor. Each keeps its own Source and
+  Listener placement.
+- **Floor** — Sets the Chamber floor height.
+- **Scale** — Scales the acoustic space from 1:100 to 10:1. The map does not
+  change.
+- **Listener height** / **Source height** — Sets the height above the ground,
+  or above the Chamber floor.
+- **Material** — Sets the absorption of the terrain surface.
+- **Scattering** — Balances discrete echoes and diffuse scattering.
+- **Ground reflection** — Sets the level of the reflection from the ground under
+  the Source and Listener.
+- **Delete terrain** — Removes the saved terrain.
 
 ## Echo field settings
 
