@@ -14,7 +14,7 @@ import { createRectangleVertices, insertVertex, moveEdgeVertices, pointInStructu
 import { createWorkspaceProject, parseWorkspaceProject, REFLECTION_LEVEL_RANGE } from './workspace-project.js';
 import { captureTerrain, MAXIMUM_CAPTURE_EXTENT_METRES, MINIMUM_CAPTURE_EXTENT_METRES, TERRAIN_PROVIDER, validCaptureBounds } from './terrain-tiles.js';
 import { EXTERIOR_HEIGHT_RANGE, floorRange, GROUND_REFLECTION_RANGE, normalizeTerrainSpace, parseTerrainSpace, placePoint, scaleTerrainField, sectionProfile, segmentClear, serializeTerrainSpace, tallestCavityPoint, TERRAIN_SCALE_RANGE, terrainDistanceMetres, terrainFrame, terrainHeightMetres } from './terrain-space.js';
-import { captureSpaceScene, DEFAULT_SPACE_VIEW, drawSection, drawSpace, paintSpacePulses } from './space-view.js';
+import { captureSpaceScene, DEFAULT_SPACE_VIEW, drawSection, drawSpace, paintSpacePulses, zoomSpaceView } from './space-view.js';
 import { floorOutlineGeoJson, footprintCoordinates, footprintGeoJson, hillshadeDataUrl } from './terrain-view.js';
 import { encodeFloat32Wav, wavByteLength, WAV_SAMPLE_RATE } from './wav.js';
 import { zipStore } from './zip.js';
@@ -2102,9 +2102,11 @@ function attachOrbit(canvas) {
   canvas.addEventListener('pointerup', release);
   canvas.addEventListener('pointercancel', release);
   canvas.addEventListener('wheel', event => {
-    if (spaceViewMode !== 'space') return;
+    const frame = activeTerrainFrame();
+    if (spaceViewMode !== 'space' || !frame) return;
     event.preventDefault();
-    spaceView = { ...spaceView, zoom: Math.min(4, Math.max(.4, spaceView.zoom * Math.exp(-event.deltaY * .0015))) };
+    const bounds = canvas.getBoundingClientRect();
+    spaceView = zoomSpaceView(frame, spaceView, bounds.width, bounds.height, event.clientX - bounds.left, event.clientY - bounds.top, Math.exp(-event.deltaY * .0015));
     scheduleSpaceDraw();
   }, { passive: false });
   canvas.addEventListener('dblclick', () => {

@@ -5,10 +5,12 @@ const PROFILE_SAMPLES = 110;
 const TARGET_RELIEF_SHARE = .3;
 const SECTION_RELIEF_SHARE = .45;
 const MAXIMUM_EXAGGERATION = 20;
-const VIEW_MARGIN = .12;
+const VIEW_MARGIN = .06;
 const SCALE_BAR_STEPS = [1, 2, 5];
 
-export const DEFAULT_SPACE_VIEW = Object.freeze({ yaw: -.6, pitch: .62, zoom: 1 });
+export const DEFAULT_SPACE_VIEW = Object.freeze({ yaw: -.6, pitch: .62, zoom: 1, panX: 0, panY: 0 });
+const MINIMUM_ZOOM = .4;
+const MAXIMUM_ZOOM = 4;
 
 function exaggeration(reliefMetres, extentMetres, share) {
   if (!(reliefMetres > 0)) return 1;
@@ -71,29 +73,57 @@ function drawDirect(context, palette, from, to, occluded) {
 }
 
 /**
+ * Frames the terrain block from its floor to its highest point. The horizontal extent is the
+ * footprint's circumscribed circle, so the framing does not change while the block turns.
+ */
+function spaceFit(frame, view, width, height) {
+  const { widthMetres, heightMetres, minimumElevation, maximumElevation, mode, floor } = frame;
+  const extent = Math.max(widthMetres, heightMetres);
+  const vertical = exaggeration(maximumElevation - minimumElevation, extent, TARGET_RELIEF_SHARE);
+  const base = mode === 'interior' ? floor : minimumElevation;
+  const radius = Math.hypot(widthMetres, heightMetres) / 2 / extent;
+  const lift = elevation => (elevation - minimumElevation) / extent * vertical * Math.cos(view.pitch);
+  const reach = radius * Math.sin(view.pitch);
+  const top = lift(maximumElevation) + reach;
+  const bottom = lift(base) - reach;
+  const pixels = Math.min(width / (2 * radius), height / Math.max(top - bottom, 1e-6)) * (1 - VIEW_MARGIN * 2);
+  return { extent, vertical, base, middleUp: (top + bottom) / 2, pixels };
+}
+
+/** Zooms toward the canvas point (x, y), keeping the terrain under it in place. */
+export function zoomSpaceView(frame, view, width, height, x, y, factor) {
+  const zoom = Math.min(MAXIMUM_ZOOM, Math.max(MINIMUM_ZOOM, view.zoom * factor));
+  const { pixels } = spaceFit(frame, view, width, height);
+  const shift = 1 / view.zoom - 1 / zoom;
+  return {
+    ...view,
+    zoom,
+    panX: view.panX + (x - width / 2) / pixels * shift,
+    panY: view.panY - (y - height / 2) / pixels * shift
+  };
+}
+
+/**
  * The terrain as stacked profiles seen from an orbit, the way GeoFlute shows a wavetable bank.
  * Canyon draws the surface with air above it; Chamber draws the ceiling over the floor and tints
  * the air between them, so the cavity narrowing upward is visible.
  */
 export function drawSpace(canvas, { frame, placement, reflectors = [] }, view, palette) {
   const { context, width, height } = prepareCanvas(canvas);
-  const { widthMetres, heightMetres, minimumElevation, maximumElevation, mode, floor, scale } = frame;
+  const { widthMetres, heightMetres, minimumElevation, mode, floor, scale } = frame;
   const chamber = mode === 'interior';
-  const extent = Math.max(widthMetres, heightMetres);
-  const vertical = exaggeration(maximumElevation - minimumElevation, extent, TARGET_RELIEF_SHARE);
-  const base = chamber ? floor : minimumElevation;
+  const { extent, vertical, base, middleUp, pixels } = spaceFit(frame, view, width, height);
   const cosine = Math.cos(view.yaw);
   const sine = Math.sin(view.yaw);
   const pitchCosine = Math.cos(view.pitch);
   const pitchSine = Math.sin(view.pitch);
-  const pixels = Math.min(width, height * 1.4) * (1 - VIEW_MARGIN * 2) * view.zoom;
-  const centreX = width / 2;
-  const centreY = height * .56;
+  const zoomed = pixels * view.zoom;
   const project = (x, y, z) => {
     const nx = x / extent; const ny = y / extent; const nz = (z - minimumElevation) / extent * vertical;
     const across = nx * cosine - ny * sine;
     const depth = nx * sine + ny * cosine;
-    return { x: centreX + across * pixels, y: centreY - (nz * pitchCosine + depth * pitchSine) * pixels, depth };
+    const up = nz * pitchCosine + depth * pitchSine;
+    return { x: width / 2 + (across - view.panX) * zoomed, y: height / 2 - (up - middleUp - view.panY) * zoomed, depth };
   };
 
   const alongX = Math.abs(cosine) >= Math.abs(sine);

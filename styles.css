@@ -280,6 +280,9 @@ input[type="range"]:focus-visible {
   align-items: flex-end;
   transform: translateX(-50%);
 }
+.map-panel:has(.maplibregl-ctrl-attrib.maplibregl-compact-show) .image-editor {
+  bottom: 44px;
+}
 .image-editor[hidden],
 .image-editor-buttons[hidden],
 .image-editor-panel[hidden] {
