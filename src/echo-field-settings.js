@@ -7,6 +7,7 @@ export const POINT_MODES = Object.freeze(['geometric', 'persistent']);
 export const DEFAULT_POINT_MODE = 'persistent';
 export const AIR_MODES = Object.freeze(['standard', 'custom', 'off']);
 export const DEFAULT_AIR_MODE = 'standard';
+const MAXIMUM_SOURCE_AIR_METRES = 1e6;
 
 /**
  * The one description of every echo field setting: its bounds, its slider step, and the value used
@@ -132,6 +133,8 @@ export function normalizeEchoFieldSettings(values) {
   settings.pointMode = POINT_MODES.includes(values?.pointMode) ? values.pointMode : DEFAULT_POINT_MODE;
   settings.airMode = AIR_MODES.includes(values?.airMode) ? values.airMode : DEFAULT_AIR_MODE;
   settings.buildingOcclusion = values?.buildingOcclusion !== false;
+  // The air path already absorbed in the sound (see pathBandGains); it belongs to the sound, not to a dialog control.
+  settings.sourceAirMetres = Number.isFinite(values?.sourceAirMetres) ? Math.max(0, Math.min(MAXIMUM_SOURCE_AIR_METRES, values.sourceAirMetres)) : 0;
   return settings;
 }
 

@@ -17,7 +17,9 @@ import { EXTERIOR_HEIGHT_RANGE, floorRange, GROUND_REFLECTION_RANGE, normalizeTe
 import { captureSpaceScene, DEFAULT_SPACE_VIEW, drawSection, drawSpace, paintSpacePulses, zoomSpaceView } from './space-view.js';
 import { floorOutlineGeoJson, footprintCoordinates, footprintGeoJson, hillshadeDataUrl } from './terrain-view.js';
 import { encodeFloat32Wav, wavByteLength, WAV_SAMPLE_RATE } from './wav.js';
-import { zipStore } from './zip.js';
+import { unzipStored, zipStore } from './zip.js';
+import { readHandoffMessage, TECT_MESSAGES } from './handoff.js';
+import { handoffAirMetres, handoffPlacement, packagedHandoffs } from './tect-receive.js';
 
 const OVERTURE_BUILDINGS_URL = 'pmtiles://https://data.source.coop/cholmes/overture/overture-buildings.pmtiles';
 const ACCENT_COLOR = '#ff4fae';
@@ -200,11 +202,15 @@ function storedWorkspace() {
 }
 
 const state = storedWorkspace() ?? defaultWorkspace();
+// The air in a sound belongs to that sound, and a sound is not kept between sessions.
+state.settings.echoField = { ...state.settings.echoField, sourceAirMetres: 0 };
 state.buildingsVisible = false;
 let activeTool = null;
 let audioContext;
 let importedAudioBuffer = null;
 let importedAudioName = null;
+/** The air path already absorbed in the imported sound, metres (`pathBandGains`). */
+let importedAudioAirMetres = 0;
 let defaultHandclapBuffer = null;
 let audioSourceRevision = 0;
 let monitorRenderCache = null;
@@ -1813,7 +1819,8 @@ $('#echo-settings-dialog').addEventListener('close', event => {
     lateMode: $('#setting-late-mode').value,
     pointMode: $('#setting-point-mode').value,
     airMode: $('#setting-air-mode').value,
-    buildingOcclusion: $('#setting-building-occlusion').checked
+    buildingOcclusion: $('#setting-building-occlusion').checked,
+    sourceAirMetres: importedAudioAirMetres
   });
   if (state.terrainSpace) applyTerrainSettings();
   scheduleSave();
@@ -3045,27 +3052,104 @@ $('#play-button').addEventListener('click', async () => {
   }
 });
 
+function setImportedAudio(buffer, name, airMetres = 0) {
+  importedAudioBuffer = buffer;
+  importedAudioName = name;
+  importedAudioAirMetres = airMetres;
+  state.settings.echoField = { ...state.settings.echoField, sourceAirMetres: airMetres };
+  changeAudioSource();
+  renderGeometry();
+}
+
+/**
+ * Places a handed-over sound: the Listener where it was heard and the Source the way it came from.
+ * In the terrain space it stays there when both points lie in the captured terrain; otherwise the
+ * map space takes them.
+ */
+function placeHandoff(handoff) {
+  const next = handoffPlacement(handoff, activePlacement());
+  const frame = terrainActive() ? activeTerrainFrame() : null;
+  const inTerrain = frame && ['source', 'listener'].every(role => placePoint(frame, next[role], terrainHeightMetres(state.terrainSpace, role)).valid);
+  if (terrainActive() && !inTerrain) setActiveSpace('map');
+  const placement = activePlacement();
+  releaseSavedEchoField();
+  Object.assign(placement, { source: next.source, listener: next.listener, pointsLinked: false });
+  syncMarkers();
+  render();
+  if (next.moved) {
+    const longitudes = [next.source.longitude, next.listener.longitude];
+    const latitudes = [next.source.latitude, next.listener.latitude];
+    map.fitBounds([[Math.min(...longitudes), Math.min(...latitudes)], [Math.max(...longitudes), Math.max(...latitudes)]], { padding: 80, maxZoom: 16, duration: 0 });
+  }
+}
+
+/** Takes up a handed-over sound as the Source's sound, and places it. */
+function useHandoff(handoff, buffer, label) {
+  setImportedAudio(buffer, label, handoffAirMetres(handoff));
+  $('#sound-name').textContent = `Sound: ${label}`;
+  placeHandoff(handoff);
+}
+
+/** A handoff's interleaved samples as an audio buffer. */
+function handoffBuffer(handoff, samples) {
+  const { channels, sampleRateHz } = handoff.audio;
+  const frames = samples.length / channels;
+  const buffer = getAudioContext().createBuffer(channels, frames, sampleRateHz);
+  for (let channel = 0; channel < channels; channel += 1) {
+    const data = new Float32Array(frames);
+    for (let frame = 0; frame < frames; frame += 1) data[frame] = samples[frame * channels + channel];
+    buffer.copyToChannel(data, channel);
+  }
+  return buffer;
+}
+
+async function openSoundPackage(file) {
+  const found = packagedHandoffs(unzipStored(new Uint8Array(await file.arrayBuffer())));
+  if (!found.length) throw new Error('no sound handed over by a tect');
+  const [{ handoff, wav }] = found;
+  const buffer = await getAudioContext().decodeAudioData(wav.slice().buffer);
+  useHandoff(handoff, buffer, `${handoff.name || handoff.audio.file} (${file.name})`);
+}
+
 $('#audio-file').addEventListener('change', async event => {
   const [file] = event.target.files;
   if (!file) return;
   try {
-    const context = getAudioContext();
-    importedAudioBuffer = await context.decodeAudioData(await file.arrayBuffer());
-    importedAudioName = file.name;
-    changeAudioSource();
+    if (/\.zip$/i.test(file.name) || file.type === 'application/zip') {
+      await openSoundPackage(file);
+      return;
+    }
+    setImportedAudio(await getAudioContext().decodeAudioData(await file.arrayBuffer()), file.name);
     $('#sound-name').textContent = `Sound: ${file.name}`;
-  } catch {
-    importedAudioBuffer = null;
-    importedAudioName = null;
-    changeAudioSource();
-    $('#sound-name').textContent = 'Sound: file could not be opened';
+  } catch (error) {
+    setImportedAudio(null, null);
+    $('#sound-name').textContent = `Sound: ${file.name} could not be opened${error?.message && !(error instanceof DOMException) ? `: ${error.message}` : ''}`;
   }
 });
 
+/**
+ * Another tect, such as Boomtect, sends a sound in a window message (`handoff.js`): Echotect says it
+ * is ready when opened by one and whenever greeted, and answers whether it took the sound.
+ */
+const TECT_ORIGINS = Object.freeze(['https://janne-s.github.io', 'http://127.0.0.1:8000', 'http://localhost:8000']);
+window.addEventListener('message', event => {
+  if (!TECT_ORIGINS.includes(event.origin) || !event.source || typeof event.data?.type !== 'string') return;
+  const answer = message => event.source.postMessage(message, event.origin);
+  if (event.data.type === TECT_MESSAGES.hello) { answer({ type: TECT_MESSAGES.ready }); return; }
+  if (event.data.type !== TECT_MESSAGES.handoff) return;
+  try {
+    const { handoff, samples } = readHandoffMessage(event.data);
+    if (handoff.kind !== 'sound') throw new Error(`a ${handoff.kind} cannot be used as a sound`);
+    useHandoff(handoff, handoffBuffer(handoff, samples), `${handoff.name || 'Sound'} from ${handoff.producer.app || 'another tect'}`);
+    answer({ type: TECT_MESSAGES.received, id: handoff.id });
+  } catch (error) {
+    answer({ type: TECT_MESSAGES.refused, reason: error instanceof Error ? error.message : String(error) });
+  }
+});
+if (window.opener) window.opener.postMessage({ type: TECT_MESSAGES.ready }, '*');
+
 $('#default-sound').addEventListener('click', () => {
-  importedAudioBuffer = null;
-  importedAudioName = null;
-  changeAudioSource();
+  setImportedAudio(null, null);
   $('#audio-file').value = '';
   $('#sound-name').textContent = `Sound: ${DEFAULT_SOUND_NAME}`;
 });
@@ -3213,7 +3297,7 @@ $('#open-project-file').addEventListener('change', async event => {
     terrainSpace: opened.terrainSpace,
     globalReflectionLevelDb: opened.globalReflectionLevelDb,
     globalMaterial: opened.globalMaterial,
-    settings: opened.settings
+    settings: { ...opened.settings, echoField: { ...opened.settings.echoField, sourceAirMetres: importedAudioAirMetres } }
   });
   monitorRenderCache = null;
   automaticReflectors = opened.automaticReflectors;

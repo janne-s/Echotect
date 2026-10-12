@@ -33,3 +33,13 @@ test('causal coloration begins at the geometric arrival sample', () => {
   const filter = pathFilter([1, .9, .8, .7, .5, .3, .1], 48000);
   assert.notEqual(filter[0], 0);
 });
+
+test('a sound that holds its air is absorbed only beyond that path, so the air counts once', async () => {
+  const { pathBandGains } = await import('../src/acoustics.js');
+  const settings = { airMode: 'standard' };
+  const held = pathBandGains({ pathMetres: 400, referencePathMetres: 400, settings: { ...settings, sourceAirMetres: 400 } });
+  assert.deepEqual(held, held.map(() => 1));
+  const beyond = pathBandGains({ pathMetres: 1000, referencePathMetres: 1000, settings: { ...settings, sourceAirMetres: 400 } });
+  const rest = pathBandGains({ pathMetres: 600, referencePathMetres: 600, settings });
+  beyond.forEach((gain, band) => assert.ok(Math.abs(gain - rest[band]) < 1e-12));
+});

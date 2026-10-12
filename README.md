@@ -27,6 +27,15 @@ and project manifests.
 Structures are editable polygons in Map and Image modes. Their edges provide
 reflective surfaces to the Echo field.
 
+## Boomtect
+
+A sound from [Boomtect](https://github.com/janne-s/Boomtect) arrives with its
+place: **Send to Echotect** there opens Echotect with it, or choose Boomtect's
+Echotect package (ZIP) as your own sound. The Listener goes where the
+microphone was and the Source the way the sound came from, at its distance.
+The sound already holds the air along that distance, so only the rest of each
+path is absorbed. Reflectors stay where they are.
+
 ## Buildings
 
 - **Buildings** — Shows building footprints on the map.

@@ -52,11 +52,15 @@ export function geometryReferencePathMetres(directPathMetres, firstReflectionPat
   return positive.length ? Math.min(...positive) : 1;
 }
 
-/** Broadband reflector level, material absorption, and atmospheric absorption for one path. */
+/**
+ * Broadband reflector level, material absorption, and atmospheric absorption for one path. A sound
+ * whose air absorption over `settings.sourceAirMetres` is already in it, such as one handed over by
+ * Boomtect, is absorbed only over the rest of each path, so the air is counted once.
+ */
 export function pathBandGains({ pathMetres, referencePathMetres = 1, reflectors = [], settings = {}, sourceGain = 1 }) {
   const spreadingAmount = settings.geometricSpreadingAmount ?? 1;
   const spreading = sourceGain * Math.min(1, referencePathMetres / Math.max(1, pathMetres)) ** spreadingAmount;
-  const air = atmosphericBandGains(pathMetres, settings);
+  const air = atmosphericBandGains(Math.max(0, pathMetres - (settings.sourceAirMetres ?? 0)), settings);
   const materialAmount = settings.materialColorationAmount ?? 1;
   const gains = air.map(value => value * spreading);
   for (const reflector of reflectors) {

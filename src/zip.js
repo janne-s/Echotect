@@ -55,3 +55,39 @@ export function zipStore(files) {
   view.setUint32(offset + 16, centralOffset, true);
   return output;
 }
+
+/**
+ * The files of a stored (uncompressed) ZIP archive, such as Boomtect's and Echotect's own export
+ * packages: [{ name, data }], read from the central directory and checked against their checksums.
+ */
+export function unzipStored(bytes) {
+  const data = bytesOf(bytes);
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  let end = data.length - 22;
+  while (end >= 0 && view.getUint32(end, true) !== 0x06054b50) end -= 1;
+  if (end < 0) throw new Error('The file is not a ZIP archive.');
+  const count = view.getUint16(end + 10, true);
+  let offset = view.getUint32(end + 16, true);
+  const decoder = new TextDecoder();
+  const files = [];
+  for (let index = 0; index < count; index += 1) {
+    if (offset + 46 > data.length || view.getUint32(offset, true) !== 0x02014b50) throw new Error('The ZIP archive is damaged.');
+    const method = view.getUint16(offset + 10, true);
+    const checksum = view.getUint32(offset + 16, true);
+    const size = view.getUint32(offset + 20, true);
+    const nameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    const local = view.getUint32(offset + 42, true);
+    const name = decoder.decode(data.subarray(offset + 46, offset + 46 + nameLength));
+    if (method !== 0) throw new Error(`${name} is compressed; only stored ZIP archives can be opened.`);
+    if (local + 30 > data.length || view.getUint32(local, true) !== 0x04034b50) throw new Error('The ZIP archive is damaged.');
+    const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+    if (start + size > data.length) throw new Error('The ZIP archive is damaged.');
+    const content = data.slice(start, start + size);
+    if (crc32(content) !== checksum) throw new Error(`${name} does not match its checksum.`);
+    files.push({ name, data: content });
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+  return files;
+}
