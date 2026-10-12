@@ -11,7 +11,7 @@ import { createProjectManifest, validateProjectManifest } from './project-manife
 import { boundedValue } from './range.js';
 import { hrtfPosition } from './spatial.js';
 import { createRectangleVertices, insertVertex, moveEdgeVertices, pointInStructureSpace, removeVertex, structureRing, structureVertices, structureWalls, validStructure } from './structures.js';
-import { createWorkspaceProject, parseWorkspaceProject, REFLECTION_LEVEL_RANGE } from './workspace-project.js';
+import { createWorkspaceProject, DEFAULT_MAP_PLACEMENT, DEFAULT_PROJECT_NAME, parseWorkspaceProject, REFLECTION_LEVEL_RANGE } from './workspace-project.js';
 import { captureTerrain, MAXIMUM_CAPTURE_EXTENT_METRES, MINIMUM_CAPTURE_EXTENT_METRES, TERRAIN_PROVIDER, validCaptureBounds } from './terrain-tiles.js';
 import { EXTERIOR_HEIGHT_RANGE, floorRange, GROUND_REFLECTION_RANGE, normalizeTerrainSpace, parseTerrainSpace, placePoint, scaleTerrainField, sectionProfile, segmentClear, serializeTerrainSpace, tallestCavityPoint, TERRAIN_SCALE_RANGE, terrainDistanceMetres, terrainFrame, terrainHeightMetres } from './terrain-space.js';
 import { captureSpaceScene, DEFAULT_SPACE_VIEW, drawSection, drawSpace, paintSpacePulses, zoomSpaceView } from './space-view.js';
@@ -35,7 +35,6 @@ const ECHO_FIELD_CIRCLE_POINTS = 64;
 const STEM_FILE_COUNT = 3;
 const DEFAULT_SOUND_NAME = 'handclap.wav';
 const DEFAULT_ECHO_FIELD_RADIUS_METRES = 100;
-const DEFAULT_PROJECT_NAME = 'Echotect Project';
 const WORKSPACE_SAVE_DELAY_MS = 400;
 const MAXIMUM_BACKGROUND_IMAGE_BYTES = 20 * 1024 * 1024;
 const IMAGE_SOURCE_ID = 'echotect-background-image';
@@ -91,11 +90,7 @@ function defaultWorkspace() {
   return {
     project: newProject(),
     activeSpace: 'map',
-    mapPlacement: {
-      source: { latitude: 60.16955, longitude: 24.9369 },
-      listener: { latitude: 60.1707, longitude: 24.9410 },
-      pointsLinked: false
-    },
+    mapPlacement: copiedPlacement(DEFAULT_MAP_PLACEMENT),
     terrainPlacements: null,
     reflectors: [{ id: crypto.randomUUID(), latitude: 60.1721, longitude: 24.9384, levelDb: REFLECTION_LEVEL_RANGE.fallback, material: 'inherit' }],
     structures: [],
@@ -172,10 +167,11 @@ function storedReflectors(values) {
 function storedWorkspace() {
   try {
     const saved = JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY));
-    const mapPlacement = storedPlacement(saved?.mapPlacement);
-    const terrainSpace = storedTerrainSpace(saved?.terrainSpace);
-    const terrainPlacements = terrainSpace ? storedTerrainPlacements(saved?.terrainPlacements) : null;
-    if (!mapPlacement || (terrainSpace && !terrainPlacements) || !Array.isArray(saved?.reflectors)) return null;
+    // A stored workspace is read like a project: a part it lacks or cannot use takes its default.
+    if (!saved || typeof saved !== 'object') return null;
+    const mapPlacement = storedPlacement(saved.mapPlacement) ?? copiedPlacement(DEFAULT_MAP_PLACEMENT);
+    const terrainSpace = storedTerrainSpace(saved.terrainSpace);
+    const terrainPlacements = terrainSpace ? storedTerrainPlacements(saved.terrainPlacements) ?? terrainPlacementsFrom(mapPlacement) : null;
     return {
       project: typeof saved.project?.id === 'string' && typeof saved.project?.name === 'string' && typeof saved.project?.createdAt === 'string'
         ? saved.project : newProject(),

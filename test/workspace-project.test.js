@@ -74,3 +74,22 @@ test('reflector visibility connections survive project round-trip', () => {
   assert.deepEqual(opened.reflectors[0].visibleReflectorIds, ['area-1']);
   assert.deepEqual(opened.automaticReflectors[0].visibleReflectorIds, ['manual-1']);
 });
+
+test('a project of any version opens: a part it lacks takes its default, and an unknown one is dropped', async () => {
+  const { DEFAULT_MAP_PLACEMENT, DEFAULT_PROJECT_NAME } = await import('../src/workspace-project.js');
+  const opened = parseWorkspaceProject(JSON.stringify({ format: WORKSPACE_PROJECT_FORMAT, version: 99, weather: 'rain' }));
+  assert.equal(opened.project.name, DEFAULT_PROJECT_NAME);
+  assert.equal(typeof opened.project.id, 'string');
+  assert.deepEqual(opened.placements.map.listener, DEFAULT_MAP_PLACEMENT.listener);
+  assert.deepEqual(opened.reflectors, []);
+  assert.deepEqual(opened.automaticReflectors, []);
+  assert.equal(opened.terrainSpace, null);
+  assert.equal('weather' in opened, false);
+  const file = createWorkspaceProject(workspace);
+  delete file.project.name;
+  delete file.geometry.echoFieldReflectors;
+  const kept = parseWorkspaceProject(JSON.stringify(file));
+  assert.equal(kept.project.id, 'project-1');
+  assert.equal(kept.reflectors.length, 1);
+  assert.deepEqual(kept.automaticReflectors, []);
+});

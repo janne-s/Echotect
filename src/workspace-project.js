@@ -5,7 +5,17 @@ import { boundedValue } from './range.js';
 import { validStructure } from './structures.js';
 import { parseTerrainSpace, serializeTerrainSpace } from './terrain-space.js';
 
+/**
+ * The editable Echotect project. It is read like every tect document: a missing part takes its
+ * default, an unknown one is dropped, and only what is not a project or is broken is refused.
+ */
 export const WORKSPACE_PROJECT_FORMAT = 'echotect-workspace';
+export const DEFAULT_PROJECT_NAME = 'Echotect Project';
+export const DEFAULT_MAP_PLACEMENT = Object.freeze({
+  source: Object.freeze({ latitude: 60.16955, longitude: 24.9369 }),
+  listener: Object.freeze({ latitude: 60.1707, longitude: 24.9410 }),
+  pointsLinked: false
+});
 export const REFLECTION_LEVEL_RANGE = Object.freeze({ minimum: -18, maximum: -1, fallback: -6 });
 
 const materialValues = new Set(Object.keys(MATERIAL_LABELS));
@@ -31,6 +41,7 @@ function projectReflector(value) {
 }
 
 function reflectorList(value, label) {
+  if (value === undefined) return [];
   if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
   const reflectors = value.map(projectReflector);
   if (new Set(reflectors.map(reflector => reflector.id)).size !== reflectors.length) throw new Error(`${label} ids must be unique.`);
@@ -67,6 +78,7 @@ function projectBackground(value) {
 }
 
 function projectPlacement(value, label) {
+  if (value === undefined) value = DEFAULT_MAP_PLACEMENT;
   if (!isValidCoordinate(value?.source) || !isValidCoordinate(value?.listener)) throw new Error(`${label} Source and Listener positions are invalid.`);
   return {
     source: { latitude: value.source.latitude, longitude: value.source.longitude },
@@ -75,7 +87,8 @@ function projectPlacement(value, label) {
   };
 }
 
-function projectTerrainPlacements(value) {
+function projectTerrainPlacements(value, map) {
+  if (value === undefined || value === null) return { exterior: projectPlacement(map, 'Canyon'), interior: projectPlacement(map, 'Chamber') };
   return {
     exterior: projectPlacement(value?.exterior, 'Canyon'),
     interior: projectPlacement(value?.interior, 'Chamber')
@@ -87,7 +100,7 @@ export function createWorkspaceProject({ project, placements, activeSpace = 'map
   const automatic = reflectorList(automaticReflectors, 'Echo field reflectors');
   if (new Set([...manual, ...automatic].map(reflector => reflector.id)).size !== manual.length + automatic.length) throw new Error('All project reflector ids must be unique.');
   const mapPlacement = projectPlacement(placements?.map, 'Map space');
-  const terrainPlacements = terrainSpace ? projectTerrainPlacements(placements?.terrain) : null;
+  const terrainPlacements = terrainSpace ? projectTerrainPlacements(placements?.terrain, mapPlacement) : null;
   return {
     format: WORKSPACE_PROJECT_FORMAT,
     project: { id: project.id, name: project.name, createdAt: project.createdAt, savedAt },
@@ -107,23 +120,27 @@ export function parseWorkspaceProject(text) {
   let value;
   try { value = JSON.parse(text); } catch { throw new Error('The selected file is not valid JSON.'); }
   if (value?.format !== WORKSPACE_PROJECT_FORMAT) throw new Error('The selected file is not an Echotect project.');
-  if (typeof value.project?.id !== 'string' || !value.project.id || typeof value.project?.name !== 'string' || !value.project.name.trim()) throw new Error('Project identity is invalid.');
-  const reflectors = reflectorList(value.geometry.reflectors, 'Project reflectors');
-  const automaticReflectors = reflectorList(value.geometry.echoFieldReflectors, 'Echo field reflectors');
-  const structures = structureList(value.geometry.structures ?? []);
+  const geometry = value.geometry ?? {};
+  const reflectors = reflectorList(geometry.reflectors, 'Project reflectors');
+  const automaticReflectors = reflectorList(geometry.echoFieldReflectors, 'Echo field reflectors');
+  const structures = structureList(geometry.structures ?? []);
   const allIds = [...reflectors, ...automaticReflectors].map(reflector => reflector.id);
   if (new Set(allIds).size !== allIds.length) throw new Error('All project reflector ids must be unique.');
   const globalMaterial = materialValues.has(value.levels?.globalMaterial) && value.levels.globalMaterial !== 'inherit' ? value.levels.globalMaterial : 'generic';
   const heading = boundedValue(value.monitor?.heading, { minimum: 0, maximum: 359, fallback: 0 });
   const radiusMetres = Math.max(10, Number.isFinite(value.echoField?.radiusMetres) ? value.echoField.radiusMetres : 100);
   const terrainSpace = parseTerrainSpace(value.terrainSpace ?? null);
-  const mapPlacement = projectPlacement(value.geometry?.placements?.map, 'Map space');
-  const terrainPlacements = terrainSpace ? projectTerrainPlacements(value.geometry?.placements?.terrain) : null;
+  const mapPlacement = projectPlacement(geometry.placements?.map, 'Map space');
+  const terrainPlacements = terrainSpace ? projectTerrainPlacements(geometry.placements?.terrain, mapPlacement) : null;
   const mapView = isValidCoordinate(value.mapView) && Number.isFinite(value.mapView.zoom)
     ? { latitude: value.mapView.latitude, longitude: value.mapView.longitude, zoom: Math.max(0, Math.min(24, value.mapView.zoom)) }
     : { ...mapPlacement.listener, zoom: 15 };
   return {
-    project: { id: value.project.id, name: value.project.name.trim(), createdAt: typeof value.project.createdAt === 'string' ? value.project.createdAt : new Date().toISOString() },
+    project: {
+      id: typeof value.project?.id === 'string' && value.project.id ? value.project.id : crypto.randomUUID(),
+      name: typeof value.project?.name === 'string' && value.project.name.trim() ? value.project.name.trim() : DEFAULT_PROJECT_NAME,
+      createdAt: typeof value.project?.createdAt === 'string' ? value.project.createdAt : new Date().toISOString()
+    },
     placements: { map: mapPlacement, terrain: terrainPlacements },
     activeSpace: value.activeSpace === 'terrain' && terrainSpace ? 'terrain' : 'map',
     reflectors,
