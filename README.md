@@ -30,8 +30,9 @@ reflective surfaces to the Echo field.
 ## Boomtect
 
 A sound from [Boomtect](https://github.com/janne-s/Boomtect) arrives with its
-place: **Send to Echotect** there opens Echotect with it, or choose Boomtect's
-Echotect package (ZIP) as your own sound. With **Place**, the Listener goes
+place: **Send to Echotect** in Boomtect's export opens Echotect with it, or
+choose Boomtect's Echotect package (ZIP) as your own sound. As Boomtect's
+**Echotect with** chooses: with **Place**, the Listener goes
 where the microphone was and the Source the way the sound came from, at its
 distance and height; with **Direction**, only the Source moves; with **Sound
 only**, nothing does, and the sound simply replaces the current one.
