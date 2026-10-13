@@ -691,6 +691,9 @@ input[type="range"]:focus-visible {
   font-size: 0.76rem;
   line-height: 1.5;
 }
+.settings-defaults {
+  margin-right: auto;
+}
 .modal-actions {
   display: flex;
   justify-content: flex-end;

@@ -182,7 +182,7 @@ export function convolveFft(inputMono, impulse, frameCount) {
   });
 }
 
-/** Early reflections are single samples, so the sparse impulse side is the cheap loop to walk. */
+/** A sparse impulse, such as a few early reflections under a short sound, is cheapest walked tap by tap. */
 function convolveSparse(inputMono, impulse, frameCount) {
   const output = stereo(frameCount);
   impulse.forEach((channel, channelIndex) => {
@@ -195,6 +195,22 @@ function convolveSparse(inputMono, impulse, frameCount) {
     }
   });
   return output;
+}
+
+/** About how many multiply-adds one complex FFT costs per point and stage, against a tap in the direct loop. */
+const FFT_COST_PER_POINT_AND_STAGE = 6;
+
+/**
+ * Convolves by whichever is cheaper: the direct loop costs a multiply-add for every non-zero tap and
+ * input sample, the FFT a few per point and stage of its length. Hundreds of filtered reflections
+ * under a sound of seconds, such as a thunderclap from Boomtect, take the FFT; a short clap the loop.
+ */
+export function convolveCheapest(inputMono, impulse, frameCount) {
+  const taps = impulse.reduce((sum, channel) => sum + channel.reduce((count, value) => count + (value ? 1 : 0), 0), 0);
+  let fftLength = 1;
+  while (fftLength < inputMono.length + impulse[0].length - 1) fftLength *= 2;
+  const fftCost = (impulse.length + 1) * 2 * fftLength * Math.log2(fftLength) * FFT_COST_PER_POINT_AND_STAGE;
+  return taps * inputMono.length > fftCost ? convolveFft(inputMono, impulse, frameCount) : convolveSparse(inputMono, impulse, frameCount);
 }
 
 /** Everything a full project export writes. Preview asks for one of these instead. */
@@ -282,7 +298,7 @@ export async function renderExportAudio({ source, listener, reflectors, heading,
   const directArrival = once(() => {
     const impulse = stereo(timelineFrames);
     addMono(impulse, directEvent.filter, directEvent.frame, 1, stereoPan(listener, source, heading, spatialAudio));
-    return convolveSparse(inputMono, impulse, timelineFrames);
+    return convolveCheapest(inputMono, impulse, timelineFrames);
   });
 
   const rendered = {
@@ -313,7 +329,7 @@ export async function renderExportAudio({ source, listener, reflectors, heading,
   }
   if (wanted.has('directArrival')) rendered.directArrival = directArrival();
 
-  const early = wanted.has('early') || wanted.has('wet') ? convolveSparse(inputMono, earlyIr(), timelineFrames) : null;
+  const early = wanted.has('early') || wanted.has('wet') ? convolveCheapest(inputMono, earlyIr(), timelineFrames) : null;
   let late = null;
   if (wanted.has('late') || wanted.has('wet')) {
     late = await convolve(inputMono, selectedLateIr(), timelineFrames, sampleRate);

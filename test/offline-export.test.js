@@ -71,3 +71,21 @@ test('distant FDN late field cannot begin before its geometric reflection arriva
   assert.ok(preArrivalPeak < 1e-12);
   assert.ok(responsePeak > 1e-8);
 });
+
+test('the cheaper convolution gives the same sound as the direct loop (within 1e-5 of full scale)', async () => {
+  const { convolveCheapest } = await import('../src/offline-export.js');
+  const direct = (input, impulse, frames) => impulse.map(channel => {
+    const out = new Float32Array(frames);
+    channel.forEach((gain, at) => { if (gain) for (let index = 0; index < input.length && at + index < frames; index += 1) out[at + index] += input[index] * gain; });
+    return out;
+  });
+  const input = Float32Array.from({ length: 4000 }, (_, index) => Math.sin(index / 5) * .5);
+  // Dense enough that the FFT is cheaper, and sparse enough that the loop is.
+  const dense = [0, 1].map(channel => Float32Array.from({ length: 3000 }, (_, index) => (index % 3 === channel ? .01 * Math.cos(index) : 0)));
+  const sparse = [Float32Array.from({ length: 3000 }, (_, index) => (index === 10 ? .5 : 0)), new Float32Array(3000)];
+  for (const impulse of [dense, sparse]) {
+    const expected = direct(input, impulse, 7000);
+    const actual = convolveCheapest(input, impulse, 7000);
+    actual.forEach((channel, index) => channel.forEach((value, frame) => assert.ok(Math.abs(value - expected[index][frame]) < 1e-5)));
+  }
+});

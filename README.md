@@ -88,7 +88,10 @@ late field stays level.
 ## Echo field settings
 
 - **Playback mode** — Plays directly in Live mode or prepares a reusable browser
-  render when Rendered is selected.
+  render when Rendered is selected. **Cancel** stops waiting for a render, which
+  stays usable until the sound, the geometry, or a setting changes.
+- **Defaults** — Sets the Echo field settings back to their defaults; Save
+  settings keeps them.
 - **Block reflections through buildings** — Prevents Echo field surfaces from
   reflecting sound to each other through intervening buildings.
 - **Point reflections** — Chooses between a longer, more diffuse point-reflection

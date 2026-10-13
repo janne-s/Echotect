@@ -225,7 +225,8 @@ let audioSourceRevision = 0;
 let monitorRenderCache = null;
 let renderedPlayback = null;
 let renderingPlayback = false;
-let playbackRevision = 0;
+/** The render under way; cancelling forgets it, so its result is not used. */
+let activeRender = null;
 let activePlayback = null;
 let playbackProgressTimer = null;
 let reflectionPulseAnimationFrame = null;
@@ -357,7 +358,7 @@ let workspaceSaveTimer = null;
 
 /** Continuous interaction schedules a save; a save is only written once the interaction settles. */
 function scheduleSave() {
-  invalidateRenderedPlayback();
+  syncPlayButton();
   clearTimeout(workspaceSaveTimer);
   workspaceSaveTimer = setTimeout(saveWorkspace, WORKSPACE_SAVE_DELAY_MS);
 }
@@ -1827,19 +1828,26 @@ Object.entries(echoSettingInputs).forEach(([setting, selector]) => {
   input.addEventListener('input', () => syncEchoSettingOutput(setting));
 });
 
-$('#echo-settings-button').addEventListener('click', () => {
-  $('#setting-playback-mode').value = state.settings.playbackMode;
-  $('#setting-building-occlusion').checked = state.settings.echoField.buildingOcclusion;
-  $('#setting-late-mode').value = state.settings.echoField.lateMode;
-  $('#setting-point-mode').value = state.settings.echoField.pointMode;
-  $('#setting-air-mode').value = state.settings.echoField.airMode;
+/** Fills the Echo field tab's controls; nothing changes until the dialog is saved. */
+function fillEchoSettings(echoField, playbackMode) {
+  $('#setting-playback-mode').value = playbackMode;
+  $('#setting-building-occlusion').checked = echoField.buildingOcclusion;
+  $('#setting-late-mode').value = echoField.lateMode;
+  $('#setting-point-mode').value = echoField.pointMode;
+  $('#setting-air-mode').value = echoField.airMode;
   Object.entries(echoSettingInputs).forEach(([setting, selector]) => {
-    $(selector).value = state.settings.echoField[setting];
+    $(selector).value = echoField[setting];
     syncEchoSettingOutput(setting);
   });
   syncLateModeSettings();
   syncPointModeSettings();
   syncAirModeSettings();
+}
+
+$('#settings-defaults').addEventListener('click', () => fillEchoSettings(DEFAULT_ECHO_FIELD_SETTINGS, 'live'));
+
+$('#echo-settings-button').addEventListener('click', () => {
+  fillEchoSettings(state.settings.echoField, state.settings.playbackMode);
   selectSettingsTab('echo');
   if (state.terrainSpace) openTerrainSettings(state.terrainSpace);
   const dialog = $('#echo-settings-dialog');
@@ -1868,6 +1876,8 @@ $('#echo-settings-dialog').addEventListener('close', event => {
 });
 
 function selectSettingsTab(name) {
+  // Defaults belong to the Echo field tab; the terrain's settings are its own.
+  $('#settings-defaults').hidden = name !== 'echo';
   document.querySelectorAll('[data-settings-tab]').forEach(tab => {
     const selected = tab.dataset.settingsTab === name;
     tab.setAttribute('aria-selected', String(selected));
@@ -2668,10 +2678,10 @@ function syncPlayButton() {
   const button = $('#play-button');
   if (!button) return;
   if (activePlayback) button.textContent = 'Stop';
-  else if (renderingPlayback) button.textContent = 'Rendering';
-  else if (state.settings.playbackMode === 'rendered') button.textContent = renderedPlayback ? 'Play render' : 'Render';
+  else if (renderingPlayback) button.textContent = 'Cancel';
+  else if (state.settings.playbackMode === 'rendered') button.textContent = currentRender() ? 'Play render' : 'Render';
   else button.textContent = 'Play impulse';
-  button.disabled = renderingPlayback || !propagation().valid;
+  button.disabled = !renderingPlayback && !propagation().valid;
   if (renderingPlayback) button.setAttribute('aria-busy', 'true');
   else button.removeAttribute('aria-busy');
 }
@@ -2751,7 +2761,6 @@ function beginPlayback(context, sources, startTime, durationSeconds) {
 }
 
 function invalidateRenderedPlayback() {
-  playbackRevision += 1;
   renderedPlayback = null;
   syncPlayButton();
 }
@@ -2895,6 +2904,21 @@ function animateReflectionPulses(events, reflectors, lateEvents = [], durationSe
 
 const copyStereo = channels => channels.map(channel => channel.slice());
 
+/**
+ * Everything the heard sound depends on. A render stays playable while this is unchanged, so saving
+ * the workspace or moving the map while a render runs does not throw it away.
+ */
+function playbackKey() {
+  const placement = propagation();
+  return JSON.stringify({
+    audioSourceRevision, source: placement.source, listener: placement.listener, directOccluded: placement.directOccluded,
+    reflectors: exportReflectors(), heading: state.settings.heading, echoField: renderSettings(),
+    panningMode: state.settings.panningMode, arrivalsOnly: state.settings.arrivalsOnly
+  });
+}
+
+const currentRender = () => (renderedPlayback && renderedPlayback.key === playbackKey() ? renderedPlayback : null);
+
 function monitorRenderKey(placement, reflectors, outputs) {
   return JSON.stringify({
     audioSourceRevision,
@@ -3033,8 +3057,15 @@ $('#play-button').addEventListener('click', async () => {
     stopPlayback();
     return;
   }
+  // A render under way is abandoned: the browser finishes it in the background, and its result is dropped.
+  if (renderingPlayback) {
+    activeRender = null;
+    renderingPlayback = false;
+    syncPlayButton();
+    return;
+  }
   if (!propagation().valid) return;
-  if (state.settings.playbackMode === 'rendered' && renderedPlayback) {
+  if (state.settings.playbackMode === 'rendered' && currentRender()) {
     const context = getAudioContext();
     await context.resume();
     const durationSeconds = cutoffDurationSeconds(renderedPlayback.channels, WAV_SAMPLE_RATE, renderedPlayback.inputMono);
@@ -3045,7 +3076,9 @@ $('#play-button').addEventListener('click', async () => {
     return;
   }
   const rendering = state.settings.playbackMode === 'rendered';
-  const revision = playbackRevision;
+  const key = playbackKey();
+  const render = {};
+  activeRender = render;
   if (rendering) {
     renderingPlayback = true;
     syncPlayButton();
@@ -3058,10 +3091,11 @@ $('#play-button').addEventListener('click', async () => {
     const context = getAudioContext();
     await context.resume();
     const data = await monitorPlaybackData(context, rendering);
-    if (revision !== playbackRevision) return;
+    if (key !== playbackKey() || activeRender !== render) return;
     if (rendering) {
       const channels = await renderedMonitorChannels(data);
-      if (revision === playbackRevision) renderedPlayback = {
+      if (key === playbackKey() && activeRender === render) renderedPlayback = {
+        key,
         channels,
         earlyEvents: data.earlyEvents,
         reflectionEvents: data.rendered.reflectionEvents ?? [],
@@ -3085,7 +3119,8 @@ $('#play-button').addEventListener('click', async () => {
   } catch (error) {
     if (error?.name !== 'AbortError') console.error(error);
   } finally {
-    if (rendering) renderingPlayback = false;
+    if (rendering && activeRender === render) renderingPlayback = false;
+    if (activeRender === render) activeRender = null;
     syncPlayButton();
   }
 });
