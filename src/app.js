@@ -27,6 +27,8 @@ const BUILDING_LAYER_IDS = ['overture-building-fill', 'overture-building-line'];
 const MAP_VIEW_STORAGE_KEY = 'echotect:map-view:v1';
 const BASEMAP_STORAGE_KEY = 'echotect:terrain-basemap:v1';
 const WORKSPACE_STORAGE_KEY = 'echotect:workspace:v4';
+let resetting = false;
+window.addEventListener('app-reset', () => { resetting = true; });
 const materialValues = new Set(Object.keys(MATERIAL_LABELS));
 const DEFAULT_HANDCLAP_DURATION_SECONDS = 0.2003125;
 const DEFAULT_MAP_VIEW = Object.freeze({ longitude: 24.939, latitude: 60.1706, zoom: 15 });
@@ -337,6 +339,7 @@ basemapToggle.sync();
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }));
 
 map.on('moveend', () => {
+  if (resetting) return;
   const center = map.getCenter();
   try {
     localStorage.setItem(MAP_VIEW_STORAGE_KEY, JSON.stringify({
@@ -380,6 +383,7 @@ function storableTerrainSpace() {
 }
 
 function saveWorkspace() {
+  if (resetting) return;
   try {
     localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify({
       project: state.project,
@@ -417,8 +421,6 @@ document.querySelectorAll('[data-material-options]').forEach(select => {
   const values = Object.keys(MATERIAL_LABELS).filter(value => value !== 'inherit' || select.dataset.materialOptions === 'inherit');
   select.replaceChildren(...values.map(value => new Option(MATERIAL_LABELS[value], value)));
 });
-
-syncWorkspaceControls();
 
 function markerElement(type, label = '') {
   const element = document.createElement('div');
@@ -2917,7 +2919,9 @@ function playbackKey() {
   });
 }
 
-const currentRender = () => (renderedPlayback && renderedPlayback.key === playbackKey() ? renderedPlayback : null);
+function currentRender() {
+  return renderedPlayback && renderedPlayback.key === playbackKey() ? renderedPlayback : null;
+}
 
 function monitorRenderKey(placement, reflectors, outputs) {
   return JSON.stringify({
@@ -3502,3 +3506,6 @@ $('#reset-audio').addEventListener('click', async event => {
     button.textContent = 'Recover audio';
   }
 });
+
+// Restore the controls only after the whole module has initialized.
+syncWorkspaceControls();

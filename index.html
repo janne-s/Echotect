@@ -73,7 +73,7 @@
           <button id="terrain-button" type="button" aria-pressed="false" title="Draw a terrain rectangle">Terrain</button>
           <button id="terrain-draw-button" class="terrain-draw-button" type="button" aria-label="Draw new terrain" title="Draw new terrain" aria-pressed="false" hidden>+</button>
         </span>
-        <button id="echo-settings-button" class="icon-button" type="button" aria-label="Settings" title="Settings">⚙</button>
+        <button id="echo-settings-button" class="icon-button" data-recovery-dialog="echo-settings-dialog" type="button" aria-label="Settings" title="Settings">⚙</button>
         <button id="image-background-button" type="button" aria-pressed="false">Image</button>
       </div>
       <input id="image-background-file" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp">
@@ -245,6 +245,7 @@
       </div>
       <div class="modal-actions">
         <button id="settings-defaults" class="settings-defaults" type="button">Defaults</button>
+        <button type="button" data-reset-app="Echotect" data-storage-prefix="echotect:" data-session-prefix="echotect-search:">Reset app</button>
         <button value="cancel" type="submit">Cancel</button>
         <button class="primary" value="save" type="submit">Save settings</button>
       </div>
@@ -282,6 +283,7 @@
     integrity="sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/pmtiles@4.4.1/dist/pmtiles.js"
     integrity="sha384-iS2/cbFYol4NsEeda4mW6N/8wPMOT6pv2eY+GNYSJRqVC4nbJECP1+mg6D2T8wT/" crossorigin="anonymous"></script>
+  <script type="module" src="src/app-reset.js"></script>
   <script type="module" src="src/app.js"></script>
 </body>
 </html>

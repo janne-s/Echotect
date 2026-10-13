@@ -24,6 +24,11 @@ Terrain has its own Source and Listener.
 Use **Save** and **Open** for editable project files. Use **Export** for audio
 and project manifests.
 
+**Reset app** in Settings clears Echotect’s saved workspace, view,
+settings and session search cache, then reloads after confirmation. Boomtect’s
+data and downloaded files are kept. Reset is available even if the main
+application fails to start. **Recover audio** restarts only the audio engine.
+
 Structures are editable polygons in Map and Image modes. Their edges provide
 reflective surfaces to the Echo field.
 
