@@ -11,11 +11,22 @@ import { parseTerrainSpace, serializeTerrainSpace } from './terrain-space.js';
  */
 export const WORKSPACE_PROJECT_FORMAT = 'echotect-workspace';
 export const DEFAULT_PROJECT_NAME = 'Echotect Project';
+/** Heights of the map Source and Listener above the ground; at equal heights paths stay level. */
+export const MAP_HEIGHT_RANGE = Object.freeze({ minimum: .5, maximum: 20000, fallback: 1.7 });
 export const DEFAULT_MAP_PLACEMENT = Object.freeze({
   source: Object.freeze({ latitude: 60.16955, longitude: 24.9369 }),
   listener: Object.freeze({ latitude: 60.1707, longitude: 24.9410 }),
-  pointsLinked: false
+  pointsLinked: false,
+  heightsMetres: Object.freeze({ source: MAP_HEIGHT_RANGE.fallback, listener: MAP_HEIGHT_RANGE.fallback })
 });
+
+export const placementHeights = value => ({
+  source: boundedValue(value?.source, MAP_HEIGHT_RANGE),
+  listener: boundedValue(value?.listener, MAP_HEIGHT_RANGE)
+});
+
+/** A reflector's known height in metres, kept only when it is a usable number. */
+export const reflectorHeight = value => (Number.isFinite(value?.heightMetres) && value.heightMetres > 0 ? { heightMetres: value.heightMetres } : {});
 export const REFLECTION_LEVEL_RANGE = Object.freeze({ minimum: -18, maximum: -1, fallback: -6 });
 
 const materialValues = new Set(Object.keys(MATERIAL_LABELS));
@@ -30,6 +41,7 @@ function projectReflector(value) {
     longitude: value.longitude,
     levelDb: boundedValue(value.levelDb, REFLECTION_LEVEL_RANGE),
     material: materialValues.has(value.material) ? value.material : 'inherit',
+    ...reflectorHeight(value),
     ...(validEdge(value.buildingEdge) ? { buildingEdge: value.buildingEdge } : {}),
     ...(typeof value.buildingId === 'string' || typeof value.buildingId === 'number' ? { buildingId: value.buildingId } : {}),
     ...(typeof value.facadeMaterial === 'string' ? { facadeMaterial: value.facadeMaterial } : {}),
@@ -83,7 +95,8 @@ function projectPlacement(value, label) {
   return {
     source: { latitude: value.source.latitude, longitude: value.source.longitude },
     listener: { latitude: value.listener.latitude, longitude: value.listener.longitude },
-    pointsLinked: Boolean(value.pointsLinked)
+    pointsLinked: Boolean(value.pointsLinked),
+    heightsMetres: placementHeights(value.heightsMetres)
   };
 }
 

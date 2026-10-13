@@ -77,3 +77,27 @@ test('co-located source and listener have no distinct direct arrival', () => {
   const point = { latitude: 60.1699, longitude: 24.9384 };
   assert.equal(hasDistinctDirectArrival(point, point), false);
 });
+
+test('in the map space, heights lift a path into a straight line through vertical reflectors', async () => {
+  const { destinationPoint } = await import('../src/tect-receive.js');
+  const { directSoundMetrics, distanceMetres, liftedElevationDegrees, reflectionPathMetrics } = await import('../src/geo.js');
+  const listener = { latitude: 60.17, longitude: 24.94, heightMetres: 0 };
+  const source = { ...destinationPoint(listener, 270, 400), heightMetres: 300 };
+  assert.ok(Math.abs(directSoundMetrics(source, listener).pathMetres - 500) < 1e-6);
+  assert.ok(Math.abs(directSoundMetrics({ ...source, heightMetres: 0 }, listener).pathMetres - 400) < 1e-6);
+  assert.ok(Math.abs(liftedElevationDegrees(source, listener, 400) - Math.atan2(300, 400) * 180 / Math.PI) < 1e-9);
+  // A wall 20 m north of the Listener: the path meets it 20 m along its 420 m, at 300 × 20/420 ≈ 14.3 m.
+  const wall = { ...destinationPoint(listener, 0, 20), id: 'w' };
+  const horizontal = distanceMetres(source, wall) + distanceMetres(wall, listener);
+  const open = reflectionPathMetrics(source, listener, [wall]);
+  assert.ok(Math.abs(open.pathMetres - Math.hypot(horizontal, 300)) < 1e-6);
+  assert.equal(open.blocked, false);
+  assert.equal(reflectionPathMetrics(source, listener, [{ ...wall, heightMetres: 20 }]).blocked, false);
+  assert.equal(reflectionPathMetrics(source, listener, [{ ...wall, heightMetres: 10 }]).blocked, true);
+  // Without heights, and in another space's distance, nothing is lifted.
+  const flat = reflectionPathMetrics({ ...source, heightMetres: undefined }, listener, [{ ...wall, heightMetres: 1 }]);
+  assert.ok(Math.abs(flat.pathMetres - horizontal) < 1e-6);
+  assert.equal(flat.blocked, false);
+  const other = (a, b) => distanceMetres(a, b);
+  assert.ok(Math.abs(directSoundMetrics(source, listener, 343, other).pathMetres - 400) < 1e-6);
+});

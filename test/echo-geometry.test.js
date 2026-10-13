@@ -57,3 +57,12 @@ test('reflector visibility graph rejects a connection through a wall', () => {
   assert.deepEqual(open.get('west'), ['east']);
   assert.deepEqual(blocked.get('west'), []);
 });
+
+test('a building is as tall as it says, or as its floors, and otherwise of unknown height', async () => {
+  const { buildingHeightMetres } = await import('../src/echo-geometry.js');
+  assert.equal(buildingHeightMetres({ height: 24.5, num_floors: 3 }), 24.5);
+  assert.equal(buildingHeightMetres({ num_floors: 5 }), 15);
+  assert.equal(buildingHeightMetres({ 'building:levels': '4' }), 12);
+  assert.equal(buildingHeightMetres({ height: 0 }), null);
+  assert.equal(buildingHeightMetres({}), null);
+});

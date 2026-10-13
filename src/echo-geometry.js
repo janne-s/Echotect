@@ -31,6 +31,20 @@ function coordinateSpace(origin) {
   };
 }
 
+/** Floors are taken as 3 m each when a building gives only its number of floors. */
+const METRES_PER_FLOOR = 3;
+
+/**
+ * A building's height in metres from its map attributes, or null when it gives none: a wall of
+ * unknown height is never passed over, since building heights are optional data.
+ */
+export function buildingHeightMetres(properties = {}) {
+  const height = Number(properties.height);
+  if (Number.isFinite(height) && height > 0) return height;
+  const floors = Number(properties.num_floors ?? properties['building:levels']);
+  return Number.isFinite(floors) && floors > 0 ? floors * METRES_PER_FLOOR : null;
+}
+
 export function edgeKey(edge) {
   return edge.map(point => point.slice(0, 2).map(value => value.toFixed(5)).join(',')).sort().join('|');
 }

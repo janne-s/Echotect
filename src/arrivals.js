@@ -1,6 +1,6 @@
 import { bandLevelDb, geometryReferencePathMetres, maximumBandLevelDb, pathBandGains, pathFilter } from './acoustics.js';
 import { buildEarlyReflectionPaths, reflectionBranchGain, SOURCE_ONSET_GAIN } from './audio-model.js';
-import { directSoundMetrics, distanceMetres as mapDistanceMetres, isDistinctPath, reflectionPathMetrics, soundSpeedMetresPerSecond } from './geo.js';
+import { directSoundMetrics, liftedElevationDegrees, distanceMetres as mapDistanceMetres, isDistinctPath, reflectionPathMetrics, soundSpeedMetresPerSecond } from './geo.js';
 import { arrivalAzimuthDegrees } from './spatial.js';
 import { arrivalElevationDegrees } from './terrain-space.js';
 import { WAV_SAMPLE_RATE } from './wav.js';
@@ -33,7 +33,7 @@ export function createDirectArrivalEvent({ source, listener, settings = {}, samp
     pathMetres: metrics.pathMetres,
     propagationSeconds: metrics.propagationSeconds,
     arrivalAzimuthDegrees: arrivalAzimuthDegrees(listener, source),
-    arrivalElevationDegrees: arrivalElevationDegrees(listener, source)
+    arrivalElevationDegrees: listener.positionMetres ? arrivalElevationDegrees(listener, source) : liftedElevationDegrees(source, listener, metrics.horizontalMetres)
   };
 }
 
@@ -44,6 +44,7 @@ export function createEarlyArrivalEvents({ source, listener, reflectors, setting
   const referencePathMetres = geometryReferencePathMetres(directPathMetres, firstReflectionPathMetres);
   return buildEarlyReflectionPaths(reflectors, settings).flatMap(path => {
     const metrics = reflectionPathMetrics(source, listener, path, speedOfSound, distanceMetres);
+    if (metrics.blocked) return [];
     const branchGain = reflectionBranchGain(reflectors.length, path.length);
     const bandGains = pathBandGains({ pathMetres: metrics.pathMetres, referencePathMetres, reflectors: path, settings, sourceGain: SOURCE_ONSET_GAIN * branchGain });
     const gain = bandGains[3];
@@ -62,7 +63,7 @@ export function createEarlyArrivalEvents({ source, listener, reflectors, setting
       pathMetres: metrics.pathMetres,
       propagationSeconds: metrics.propagationSeconds,
       arrivalAzimuthDegrees: arrivalAzimuthDegrees(listener, emitter),
-      arrivalElevationDegrees: arrivalElevationDegrees(listener, emitter)
+      arrivalElevationDegrees: listener.positionMetres ? arrivalElevationDegrees(listener, emitter) : liftedElevationDegrees(source, listener, metrics.horizontalMetres)
     }];
   });
 }

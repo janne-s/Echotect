@@ -86,9 +86,39 @@ export function distanceMetres(a, b) {
   return 2 * EARTH_RADIUS_METRES * Math.asin(Math.sqrt(haversine));
 }
 
+/**
+ * In the map space, Source and Listener may stand at heights above the ground (`heightMetres`), and
+ * every reflector is a vertical surface. Mirrored in vertical surfaces a path keeps its heights, so
+ * it unfolds into a straight line: its length is √(horizontal² + height difference²), and it meets
+ * each reflector at a height that runs evenly from the Source's to the Listener's along the
+ * horizontal path. A reflector with a known `heightMetres` that the path meets above is passed over.
+ * The terrain space measures its own three-dimensional distances and is not lifted here.
+ */
+const isLifted = (source, listener, distance) => distance === distanceMetres
+  && Number.isFinite(source?.heightMetres) && Number.isFinite(listener?.heightMetres);
+
+function liftedPath(legs, source, listener, reflectors) {
+  const horizontalMetres = legs.reduce((sum, leg) => sum + leg, 0);
+  const rise = listener.heightMetres - source.heightMetres;
+  let travelled = 0;
+  const blocked = reflectors.some((reflector, index) => {
+    travelled += legs[index];
+    const height = source.heightMetres + (horizontalMetres > 0 ? rise * travelled / horizontalMetres : 0);
+    return Number.isFinite(reflector.heightMetres) && height > reflector.heightMetres;
+  });
+  return { pathMetres: Math.hypot(horizontalMetres, rise), blocked };
+}
+
+/** The elevation, degrees above the horizon, at which a lifted map path reaches the Listener; 0 when not lifted. */
+export function liftedElevationDegrees(source, listener, horizontalMetres) {
+  if (!Number.isFinite(source?.heightMetres) || !Number.isFinite(listener?.heightMetres)) return 0;
+  return Math.atan2(source.heightMetres - listener.heightMetres, horizontalMetres) * 180 / Math.PI;
+}
+
 export function directSoundMetrics(source, listener, speedOfSound = SPEED_OF_SOUND_METRES_PER_SECOND, distance = distanceMetres) {
-  const pathMetres = distance(source, listener);
-  return { pathMetres, propagationSeconds: propagationSeconds(pathMetres, speedOfSound) };
+  const horizontalMetres = distance(source, listener);
+  const pathMetres = isLifted(source, listener, distance) ? liftedPath([horizontalMetres], source, listener, []).pathMetres : horizontalMetres;
+  return { pathMetres, horizontalMetres, propagationSeconds: propagationSeconds(pathMetres, speedOfSound) };
 }
 
 export const isDistinctPath = pathMetres => pathMetres > COINCIDENT_DISTANCE_METRES;
@@ -99,17 +129,22 @@ export function hasDistinctDirectArrival(source, listener) {
 
 export function reflectionMetrics(source, listener, reflector, speedOfSound = SPEED_OF_SOUND_METRES_PER_SECOND, distance = distanceMetres) {
   const listenerLegMetres = distance(listener, reflector);
-  const pathMetres = distance(source, reflector) + listenerLegMetres;
-  return { listenerLegMetres, pathMetres, propagationSeconds: propagationSeconds(pathMetres, speedOfSound) };
+  const { pathMetres, blocked, propagationSeconds: seconds } = reflectionPathMetrics(source, listener, [reflector], speedOfSound, distance);
+  return { listenerLegMetres, pathMetres, blocked, propagationSeconds: seconds };
 }
 
+/** A path from the Source through reflectors to the Listener; `blocked` when it passes over a reflector. */
 export function reflectionPathMetrics(source, listener, reflectors, speedOfSound = SPEED_OF_SOUND_METRES_PER_SECOND, distance = distanceMetres) {
-  let pathMetres = 0;
+  const legs = [];
   let previous = source;
   reflectors.forEach(reflector => {
-    pathMetres += distance(previous, reflector);
+    legs.push(distance(previous, reflector));
     previous = reflector;
   });
-  pathMetres += distance(previous, listener);
-  return { pathMetres, propagationSeconds: propagationSeconds(pathMetres, speedOfSound) };
+  legs.push(distance(previous, listener));
+  const horizontalMetres = legs.reduce((sum, leg) => sum + leg, 0);
+  const { pathMetres, blocked } = isLifted(source, listener, distance)
+    ? liftedPath(legs, source, listener, reflectors)
+    : { pathMetres: horizontalMetres, blocked: false };
+  return { pathMetres, horizontalMetres, blocked, propagationSeconds: propagationSeconds(pathMetres, speedOfSound) };
 }

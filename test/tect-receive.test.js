@@ -83,3 +83,13 @@ test('a stored archive reads back exactly, and a damaged one is refused', () => 
   assert.throws(() => unzipStored(damaged), /checksum|damaged/);
   assert.throws(() => unzipStored(new Uint8Array(10)), /not a ZIP/);
 });
+
+test('the Source stands as high above the Listener as the elevation of the arrival makes it', () => {
+  const placed = handoffPlacement(handoff({ arrival: { azimuthDegrees: 270, elevationDegrees: 30, distanceMetres: 1000 } }), current);
+  assert.equal(placed.listenerHeightMetres, 1.7);
+  assert.ok(Math.abs(placed.sourceHeightMetres - (1.7 + 500)) < 1e-9);
+  const kept = handoffPlacement(handoff({ place: null, arrival: null }), { ...current, heightsMetres: { source: 40, listener: 3 } });
+  assert.deepEqual([kept.listenerHeightMetres, kept.sourceHeightMetres], [3, 40]);
+  const unplaced = handoffPlacement(handoff({ place: null, arrival: { azimuthDegrees: 0, elevationDegrees: 90, distanceMetres: 200 } }), { ...current, heightsMetres: { source: 40, listener: 3 } });
+  assert.ok(Math.abs(unplaced.sourceHeightMetres - 203) < 1e-9);
+});

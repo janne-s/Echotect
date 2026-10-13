@@ -10,6 +10,7 @@ export const PROJECT_SCHEMA_VERSION = '2.0.0';
 const point = value => ({ latitudeDegrees: value.latitude, longitudeDegrees: value.longitude });
 const placedPoint = value => ({
   ...point(value),
+  ...(!value.positionMetres && Number.isFinite(value.heightMetres) ? { heightMetres: value.heightMetres } : {}),
   ...(value.positionMetres ? { positionMetres: { east: value.positionMetres.x, north: value.positionMetres.y, up: value.positionMetres.z }, heightMetres: value.heightMetres } : {})
 });
 

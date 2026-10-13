@@ -32,10 +32,20 @@ reflective surfaces to the Echo field.
 A sound from [Boomtect](https://github.com/janne-s/Boomtect) arrives with its
 place: **Send to Echotect** there opens Echotect with it, or choose Boomtect's
 Echotect package (ZIP) as your own sound. The Listener goes where the
-microphone was and the Source the way the sound came from, at its distance.
+microphone was and the Source the way the sound came from, at its distance
+and height.
 The sound already holds the air along that distance, so only the rest of each
 path is absorbed. Reflectors stay where they are. A sound longer than two
 seconds plays Rendered, since Live cannot start that many long voices in time.
+
+## Heights
+
+In Map and Image, **Source height** and **Listener height** set how high each
+stands above the ground. Every reflector is a vertical wall, so a path from a
+high Source reaches the Listener at an angle, and it passes over a wall where
+it meets the wall above the building's height. Building heights come from the
+map data when it has them; a wall of unknown height is never passed over. The
+late field stays level.
 
 ## Buildings
 

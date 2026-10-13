@@ -29,10 +29,11 @@ export function bearingDegrees(from, to) {
 const offsetPoint = (origin, east, north) => (east === 0 && north === 0 ? { ...origin } : destinationPoint(origin, Math.atan2(east, north) * 180 / Math.PI, Math.hypot(east, north)));
 
 /**
- * Where the handoff puts the Listener and Source, from the current ones. With a place, the Listener
- * goes where the sound was heard; without one, it stays. The Source goes the way the sound came
- * from, at its distance along the ground; without an arrival it keeps its bearing and distance from
- * the Listener. `moved` tells whether the Listener changed place.
+ * Where the handoff puts the Listener and Source, from the current ones (with their heights in
+ * `current.heightsMetres`). With a place, the Listener goes where the sound was heard, at its
+ * height; without one, it stays. The Source goes the way the sound came from, at its distance along
+ * the ground and as high above the Listener as the arrival's elevation makes it; without an arrival
+ * it keeps its bearing, distance, and height. `moved` tells whether the Listener changed place.
  */
 export function handoffPlacement(handoff, current) {
   const { place, listener: heard, arrival } = handoff;
@@ -43,7 +44,11 @@ export function handoffPlacement(handoff, current) {
   const source = arrival
     ? destinationPoint(listener, arrival.azimuthDegrees, (arrival.distanceMetres ?? currentMetres) * Math.cos(toRadians(arrival.elevationDegrees)))
     : currentMetres > 0 ? destinationPoint(listener, bearingDegrees(current.listener, current.source), currentMetres) : { ...listener };
-  return { listener, source, listenerHeightMetres: heard.heightAboveGroundMetres, moved: Boolean(place) };
+  const listenerHeightMetres = place ? heard.heightAboveGroundMetres : current.heightsMetres?.listener ?? heard.heightAboveGroundMetres;
+  const sourceHeightMetres = arrival
+    ? listenerHeightMetres + (arrival.distanceMetres ?? currentMetres) * Math.sin(toRadians(arrival.elevationDegrees))
+    : current.heightsMetres?.source ?? listenerHeightMetres;
+  return { listener, source, listenerHeightMetres, sourceHeightMetres: Math.max(0, sourceHeightMetres), moved: Boolean(place) };
 }
 
 /** The air path whose absorption the sound already holds, metres: the distance it came, when it says the air is in it. */

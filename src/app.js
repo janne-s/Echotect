@@ -1,9 +1,9 @@
 import { createDirectArrivalEvent, createEarlyArrivalEvents, monitorArrivalPlan } from './arrivals.js';
 import { SOURCE_ONSET_GAIN } from './audio-model.js';
 import { DEFAULT_ECHO_FIELD_SETTINGS, ECHO_FIELD_SETTINGS, normalizeEchoFieldSettings } from './echo-field-settings.js';
-import { edgeKey, reflectionField, reflectorVisibilityGraph, wallReflectionCandidate } from './echo-geometry.js';
+import { buildingHeightMetres, edgeKey, reflectionField, reflectorVisibilityGraph, wallReflectionCandidate } from './echo-geometry.js';
 import { exportFrameLayout } from './export-layout.js';
-import { distanceMetres, isValidCoordinate, metresPerDegreeLatitude, metresPerDegreeLongitude, parseCoordinates, reflectionMetrics, soundSpeedMetresPerSecond } from './geo.js';
+import { directSoundMetrics, distanceMetres, isValidCoordinate, metresPerDegreeLatitude, metresPerDegreeLongitude, parseCoordinates, reflectionMetrics, soundSpeedMetresPerSecond } from './geo.js';
 import { IMAGE_OPACITY_RANGE, IMAGE_WIDTH_RANGE, imageCoordinates, transformImageEdge, transformImagePoint } from './image-background.js';
 import { effectiveMaterial, MATERIAL_LABELS, normalizeFacadeMaterial } from './materials.js';
 import { addStereo, renderExportAudio, resampleToMono } from './offline-export.js';
@@ -11,7 +11,7 @@ import { createProjectManifest, validateProjectManifest } from './project-manife
 import { boundedValue } from './range.js';
 import { hrtfPosition } from './spatial.js';
 import { createRectangleVertices, insertVertex, moveEdgeVertices, pointInStructureSpace, removeVertex, structureRing, structureVertices, structureWalls, validStructure } from './structures.js';
-import { createWorkspaceProject, DEFAULT_MAP_PLACEMENT, DEFAULT_PROJECT_NAME, parseWorkspaceProject, REFLECTION_LEVEL_RANGE } from './workspace-project.js';
+import { createWorkspaceProject, DEFAULT_MAP_PLACEMENT, DEFAULT_PROJECT_NAME, MAP_HEIGHT_RANGE, parseWorkspaceProject, placementHeights, REFLECTION_LEVEL_RANGE, reflectorHeight } from './workspace-project.js';
 import { captureTerrain, MAXIMUM_CAPTURE_EXTENT_METRES, MINIMUM_CAPTURE_EXTENT_METRES, TERRAIN_PROVIDER, validCaptureBounds } from './terrain-tiles.js';
 import { EXTERIOR_HEIGHT_RANGE, floorRange, GROUND_REFLECTION_RANGE, normalizeTerrainSpace, parseTerrainSpace, placePoint, scaleTerrainField, sectionProfile, segmentClear, serializeTerrainSpace, tallestCavityPoint, TERRAIN_SCALE_RANGE, terrainDistanceMetres, terrainFrame, terrainHeightMetres } from './terrain-space.js';
 import { captureSpaceScene, DEFAULT_SPACE_VIEW, drawSection, drawSpace, paintSpacePulses, zoomSpaceView } from './space-view.js';
@@ -125,7 +125,8 @@ function storedPlacement(value) {
   return {
     source: { latitude: value.source.latitude, longitude: value.source.longitude },
     listener: { latitude: value.listener.latitude, longitude: value.listener.longitude },
-    pointsLinked: Boolean(value.pointsLinked)
+    pointsLinked: Boolean(value.pointsLinked),
+    heightsMetres: placementHeights(value.heightsMetres)
   };
 }
 
@@ -133,8 +134,15 @@ function copiedPlacement(value) {
   return {
     source: { ...value.source },
     listener: { ...value.listener },
-    pointsLinked: value.pointsLinked
+    pointsLinked: value.pointsLinked,
+    heightsMetres: placementHeights(value.heightsMetres)
   };
+}
+
+/** The map Source and Listener with their heights above the ground (`geo.js` lifts paths with them). */
+function liftedMapPoints() {
+  const { source, listener, heightsMetres } = state.mapPlacement;
+  return { source: { ...source, heightMetres: heightsMetres.source }, listener: { ...listener, heightMetres: heightsMetres.listener } };
 }
 
 function terrainPlacementsFrom(value) {
@@ -158,6 +166,7 @@ function storedReflectors(values) {
     longitude: reflector.longitude,
     levelDb: boundedValue(reflector.levelDb, REFLECTION_LEVEL_RANGE),
     material: materialValues.has(reflector.material) ? reflector.material : 'inherit',
+    ...reflectorHeight(reflector),
     ...(validEdge(reflector.buildingEdge) ? { buildingEdge: reflector.buildingEdge } : {}),
     ...(typeof reflector.buildingId === 'string' || typeof reflector.buildingId === 'number' ? { buildingId: reflector.buildingId } : {}),
     ...(typeof reflector.facadeMaterial === 'string' ? { facadeMaterial: reflector.facadeMaterial } : {}),
@@ -461,8 +470,12 @@ function syncMarkers() {
 
 const formatHeight = metres => `${metres < 10 ? metres.toFixed(1) : Math.round(metres)} m`;
 
+/** Map heights are shown on the markers once they differ from the level default. */
+const mapHeightsLevel = () => Object.values(state.mapPlacement.heightsMetres).every(height => height === MAP_HEIGHT_RANGE.fallback);
+
 function syncMarkerHeights() {
-  const placement = terrainActive() ? propagation() : null;
+  syncMapHeights();
+  const placement = terrainActive() ? propagation() : mapHeightsLevel() ? null : { ...liftedMapPoints(), map: true };
   [['source', 'source'], ['listener', 'listener'], ['combined', 'listener']].forEach(([id, role]) => {
     const element = markers.get(id)?.getElement();
     if (!element) return;
@@ -475,9 +488,30 @@ function syncMarkerHeights() {
     }
     const placed = placement[role];
     label.textContent = formatHeight(placed.heightMetres);
-    element.classList.toggle('marker-invalid', !placed.valid);
+    element.classList.toggle('marker-invalid', !placement.map && !placed.valid);
   });
 }
+
+/** The map space's height sliders; the terrain space has its own in its panel. */
+function syncMapHeights() {
+  $('#map-heights').hidden = terrainActive();
+  ['source', 'listener'].forEach(role => {
+    const height = state.mapPlacement.heightsMetres[role];
+    const input = $(`#map-${role}-height`);
+    if (document.activeElement !== input) input.value = geometricPosition(height, MAP_HEIGHT_RANGE.minimum, MAP_HEIGHT_RANGE.maximum);
+    $(`#map-${role}-height-value`).textContent = formatHeight(height);
+  });
+}
+
+['source', 'listener'].forEach(role => {
+  $(`#map-${role}-height`).addEventListener('input', event => {
+    state.mapPlacement.heightsMetres = {
+      ...state.mapPlacement.heightsMetres,
+      [role]: geometricValue(Number(event.currentTarget.value), MAP_HEIGHT_RANGE.minimum, MAP_HEIGHT_RANGE.maximum)
+    };
+    renderGeometry();
+  });
+});
 
 function activeTerrainPlacement() { return state.terrainPlacements?.[state.terrainSpace?.mode] ?? null; }
 function terrainAvailable() { return Boolean(state.terrainSpace && activeTerrainPlacement()); }
@@ -514,7 +548,7 @@ function activeTerrainFrame() {
 function propagation() {
   const placement = activePlacement();
   const frame = activeTerrainFrame();
-  if (!frame) return { source: placement.source, listener: placement.listener, distanceMetres, directOccluded: false, valid: true };
+  if (!frame) return { ...liftedMapPoints(), distanceMetres, directOccluded: false, valid: true };
   const source = placePoint(frame, placement.source, terrainHeightMetres(state.terrainSpace, 'source'));
   const listener = placePoint(frame, placement.listener, terrainHeightMetres(state.terrainSpace, 'listener'));
   const valid = source.valid && listener.valid;
@@ -1207,8 +1241,7 @@ function updateDirectPathMetrics() {
     output.textContent = `${outside} outside the ${state.terrainSpace.mode === 'interior' ? 'cavity' : 'terrain'}`;
     return;
   }
-  const metres = placement.distanceMetres(placement.source, placement.listener);
-  const seconds = metres / soundSpeedMetresPerSecond(state.settings.echoField);
+  const { pathMetres: metres, propagationSeconds: seconds } = directSoundMetrics(placement.source, placement.listener, soundSpeedMetresPerSecond(state.settings.echoField), placement.distanceMetres);
   output.textContent = `Source → Listener: ${formatDistance(metres)} · ${seconds.toFixed(3)} s${placement.directOccluded ? ' · blocked' : ''}`;
 }
 
@@ -1265,9 +1298,10 @@ function updateReflectionMetrics() {
   state.reflectors.forEach(reflector => {
     const card = reflectionCards.get(reflector.id);
     if (!card) return;
-    const metrics = reflectionMetrics(state.mapPlacement.source, state.mapPlacement.listener, reflector, soundSpeedMetresPerSecond(state.settings.echoField));
+    const { source, listener } = liftedMapPoints();
+    const metrics = reflectionMetrics(source, listener, reflector, soundSpeedMetresPerSecond(state.settings.echoField));
     card.listenerLeg.textContent = formatDistance(metrics.listenerLegMetres);
-    card.delay.textContent = `${metrics.propagationSeconds.toFixed(3)} s`;
+    card.delay.textContent = metrics.blocked ? 'over the top' : `${metrics.propagationSeconds.toFixed(3)} s`;
   });
 }
 
@@ -1538,7 +1572,7 @@ function rebuildEchoField() {
         const key = edgeKey(edge);
         if (seenEdges.has(key)) continue;
         seenEdges.add(key);
-        walls.push({ edge, key, ring, facadeMaterial });
+        walls.push({ edge, key, ring, facadeMaterial, heightMetres: buildingHeightMetres(feature.properties) });
       }
     });
   });
@@ -1548,10 +1582,12 @@ function rebuildEchoField() {
   const candidates = walls.flatMap(wall => {
     const reflection = wallReflectionCandidate(field, wall, distanceMetres);
     if (!reflection) return [];
-    const pathMetres = reflectionMetrics(state.mapPlacement.source, state.mapPlacement.listener, reflection.point).pathMetres;
+    const lifted = liftedMapPoints();
+    const pathMetres = reflectionMetrics(lifted.source, lifted.listener, { ...reflection.point, heightMetres: wall.heightMetres }).pathMetres;
     return [{
       id: `area-${wall.key}`,
       ...reflection.point,
+      ...(Number.isFinite(wall.heightMetres) ? { heightMetres: wall.heightMetres } : {}),
       buildingEdge: wall.edge,
       facadeMaterial: wall.facadeMaterial,
       material: wall.structureId ? state.structures.find(structure => structure.id === wall.structureId)?.material ?? 'inherit' : normalizeFacadeMaterial(wall.facadeMaterial) ?? 'inherit',
@@ -1688,7 +1724,8 @@ map.on('click', event => {
       levelDb: state.globalReflectionLevelDb,
       material: normalizeFacadeMaterial(facadeMaterial) ?? 'inherit',
       ...(wall?.point ?? point),
-      ...(wall ? { buildingEdge: wall.edge, buildingId: building.id, facadeMaterial } : {})
+      ...(wall ? { buildingEdge: wall.edge, buildingId: building.id, facadeMaterial } : {}),
+      ...(wall && Number.isFinite(buildingHeightMetres(building.properties)) ? { heightMetres: buildingHeightMetres(building.properties) } : {})
     });
   }
   syncMarkers(); render();
@@ -3084,13 +3121,15 @@ function setImportedAudio(buffer, name, airMetres = 0) {
  * map space takes them.
  */
 function placeHandoff(handoff) {
-  const next = handoffPlacement(handoff, activePlacement());
+  const next = handoffPlacement(handoff, terrainActive() ? activePlacement() : state.mapPlacement);
   const frame = terrainActive() ? activeTerrainFrame() : null;
   const inTerrain = frame && ['source', 'listener'].every(role => placePoint(frame, next[role], terrainHeightMetres(state.terrainSpace, role)).valid);
   if (terrainActive() && !inTerrain) setActiveSpace('map');
   const placement = activePlacement();
   releaseSavedEchoField();
   Object.assign(placement, { source: next.source, listener: next.listener, pointsLinked: false });
+  // The terrain space keeps its own heights; in the map space the sound brings them.
+  if (placement === state.mapPlacement) state.mapPlacement.heightsMetres = placementHeights({ source: next.sourceHeightMetres, listener: next.listenerHeightMetres });
   syncMarkers();
   render();
   if (next.moved) {

@@ -142,6 +142,10 @@
           </span>
           <input id="listener-heading" type="range" step="1">
         </label>
+        <div id="map-heights">
+          <label class="level-control"><span>Source height <output id="map-source-height-value"></output></span><input id="map-source-height" type="range" min="0" max="1200" step="1"></label>
+          <label class="level-control"><span>Listener height <output id="map-listener-height-value"></output></span><input id="map-listener-height" type="range" min="0" max="1200" step="1"></label>
+        </div>
         <output id="direct-path-metrics" class="direct-path-metrics" aria-label="Source to listener distance and propagation time"></output>
         <div class="audio-actions">
           <button id="play-button" class="primary" type="button">Play impulse</button>

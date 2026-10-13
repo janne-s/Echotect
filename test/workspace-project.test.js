@@ -6,7 +6,7 @@ const workspace = {
   project: { id: 'project-1', name: 'Saved field', createdAt: '2026-08-24T00:00:00.000Z' },
   activeSpace: 'map',
   placements: {
-    map: { source: { latitude: 60.1, longitude: 24.9 }, listener: { latitude: 60.2, longitude: 25 }, pointsLinked: false },
+    map: { source: { latitude: 60.1, longitude: 24.9 }, listener: { latitude: 60.2, longitude: 25 }, pointsLinked: false, heightsMetres: { source: 120, listener: 2 } },
     terrain: null
   },
   reflectors: [{ id: 'manual-1', latitude: 60.15, longitude: 24.95, levelDb: -6, material: 'brick' }],
@@ -81,6 +81,7 @@ test('a project of any version opens: a part it lacks takes its default, and an 
   assert.equal(opened.project.name, DEFAULT_PROJECT_NAME);
   assert.equal(typeof opened.project.id, 'string');
   assert.deepEqual(opened.placements.map.listener, DEFAULT_MAP_PLACEMENT.listener);
+  assert.deepEqual(opened.placements.map.heightsMetres, DEFAULT_MAP_PLACEMENT.heightsMetres);
   assert.deepEqual(opened.reflectors, []);
   assert.deepEqual(opened.automaticReflectors, []);
   assert.equal(opened.terrainSpace, null);
