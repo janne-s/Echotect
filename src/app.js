@@ -1814,6 +1814,7 @@ $('#echo-settings-button').addEventListener('click', () => {
 $('#echo-settings-dialog').addEventListener('close', event => {
   if (event.currentTarget.returnValue !== 'save') return;
   state.settings.playbackMode = $('#setting-playback-mode').value === 'rendered' ? 'rendered' : 'live';
+  renderedForLongSound = false;
   state.settings.echoField = normalizeEchoFieldSettings({
     ...Object.fromEntries(Object.keys(echoSettingInputs).map(setting => [setting, $(echoSettingInputs[setting]).value])),
     lateMode: $('#setting-late-mode').value,
@@ -3052,11 +3053,27 @@ $('#play-button').addEventListener('click', async () => {
   }
 });
 
+/**
+ * Live playback starts every arrival as its own voice, which a long sound such as a thunderclap
+ * from Boomtect turns into more work than the browser can do in time. Such a sound switches
+ * playback to Rendered, and a short one afterwards switches it back if it was switched.
+ */
+const LIVE_PLAYBACK_MAXIMUM_SECONDS = 2;
+let renderedForLongSound = false;
+
 function setImportedAudio(buffer, name, airMetres = 0) {
   importedAudioBuffer = buffer;
   importedAudioName = name;
   importedAudioAirMetres = airMetres;
   state.settings.echoField = { ...state.settings.echoField, sourceAirMetres: airMetres };
+  const long = (buffer?.duration ?? 0) > LIVE_PLAYBACK_MAXIMUM_SECONDS;
+  if (long && state.settings.playbackMode === 'live') {
+    state.settings.playbackMode = 'rendered';
+    renderedForLongSound = true;
+  } else if (!long && renderedForLongSound) {
+    state.settings.playbackMode = 'live';
+    renderedForLongSound = false;
+  }
   changeAudioSource();
   renderGeometry();
 }

@@ -34,7 +34,8 @@ place: **Send to Echotect** there opens Echotect with it, or choose Boomtect's
 Echotect package (ZIP) as your own sound. The Listener goes where the
 microphone was and the Source the way the sound came from, at its distance.
 The sound already holds the air along that distance, so only the rest of each
-path is absorbed. Reflectors stay where they are.
+path is absorbed. Reflectors stay where they are. A sound longer than two
+seconds plays Rendered, since Live cannot start that many long voices in time.
 
 ## Buildings
 
