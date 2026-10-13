@@ -31,9 +31,10 @@ reflective surfaces to the Echo field.
 
 A sound from [Boomtect](https://github.com/janne-s/Boomtect) arrives with its
 place: **Send to Echotect** there opens Echotect with it, or choose Boomtect's
-Echotect package (ZIP) as your own sound. The Listener goes where the
-microphone was and the Source the way the sound came from, at its distance
-and height.
+Echotect package (ZIP) as your own sound. As Boomtect's **Moves** chooses,
+the Listener goes where the microphone was and the Source the way the sound
+came from, at its distance and height; or only the Source moves; or nothing
+does, and the sound simply replaces the current one.
 The sound already holds the air along that distance, so only the rest of each
 path is absorbed. Reflectors stay where they are. A sound longer than two
 seconds plays Rendered, since Live cannot start that many long voices in time.

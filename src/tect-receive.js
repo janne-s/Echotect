@@ -30,25 +30,30 @@ const offsetPoint = (origin, east, north) => (east === 0 && north === 0 ? { ...o
 
 /**
  * Where the handoff puts the Listener and Source, from the current ones (with their heights in
- * `current.heightsMetres`). With a place, the Listener goes where the sound was heard, at its
- * height; without one, it stays. The Source goes the way the sound came from, at its distance along
- * the ground and as high above the Listener as the arrival's elevation makes it; without an arrival
- * it keeps its bearing, distance, and height. `moved` tells whether the Listener changed place.
+ * `current.heightsMetres`), as far as its `placement` lets it. Moving the Listener takes it where
+ * the sound was heard, at its height, when a place is named. Moving the Source takes it the way the
+ * sound came from, at its distance along the ground and as high above the Listener as the arrival's
+ * elevation makes it; without an arrival it keeps its bearing, distance, and height. What is not
+ * moved stays as it is. `moved` tells whether the Listener changed place.
  */
 export function handoffPlacement(handoff, current) {
-  const { place, listener: heard, arrival } = handoff;
-  const listener = place
+  const { place, listener: heard, arrival, placement } = handoff;
+  const moveListener = placement === 'listener-and-source' && Boolean(place);
+  const moveSource = placement !== 'none';
+  const listener = moveListener
     ? offsetPoint({ latitude: place.latitudeDegrees, longitude: place.longitudeDegrees }, heard.positionMetres.east, heard.positionMetres.north)
     : { ...current.listener };
+  const listenerHeightMetres = moveListener ? heard.heightAboveGroundMetres : current.heightsMetres?.listener ?? heard.heightAboveGroundMetres;
+  const currentSourceHeight = current.heightsMetres?.source ?? listenerHeightMetres;
+  if (!moveSource) return { listener, source: { ...current.source }, listenerHeightMetres, sourceHeightMetres: currentSourceHeight, moved: moveListener };
   const currentMetres = distanceMetres(current.listener, current.source);
   const source = arrival
     ? destinationPoint(listener, arrival.azimuthDegrees, (arrival.distanceMetres ?? currentMetres) * Math.cos(toRadians(arrival.elevationDegrees)))
     : currentMetres > 0 ? destinationPoint(listener, bearingDegrees(current.listener, current.source), currentMetres) : { ...listener };
-  const listenerHeightMetres = place ? heard.heightAboveGroundMetres : current.heightsMetres?.listener ?? heard.heightAboveGroundMetres;
   const sourceHeightMetres = arrival
     ? listenerHeightMetres + (arrival.distanceMetres ?? currentMetres) * Math.sin(toRadians(arrival.elevationDegrees))
-    : current.heightsMetres?.source ?? listenerHeightMetres;
-  return { listener, source, listenerHeightMetres, sourceHeightMetres: Math.max(0, sourceHeightMetres), moved: Boolean(place) };
+    : currentSourceHeight;
+  return { listener, source, listenerHeightMetres, sourceHeightMetres: Math.max(0, sourceHeightMetres), moved: moveListener };
 }
 
 /** The air path whose absorption the sound already holds, metres: the distance it came, when it says the air is in it. */

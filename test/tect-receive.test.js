@@ -93,3 +93,16 @@ test('the Source stands as high above the Listener as the elevation of the arriv
   const unplaced = handoffPlacement(handoff({ place: null, arrival: { azimuthDegrees: 0, elevationDegrees: 90, distanceMetres: 200 } }), { ...current, heightsMetres: { source: 40, listener: 3 } });
   assert.ok(Math.abs(unplaced.sourceHeightMetres - 203) < 1e-9);
 });
+
+test('the handoff moves only what its placement lets it, and nothing keeps a scene as it is', () => {
+  const heights = { source: 40, listener: 3 };
+  const sourceOnly = handoffPlacement(handoff({ placement: 'source' }), { ...current, heightsMetres: heights });
+  assert.deepEqual(sourceOnly.listener, current.listener);
+  assert.equal(sourceOnly.listenerHeightMetres, 3);
+  assert.ok(Math.abs(bearingDegrees(current.listener, sourceOnly.source) - 270) < 1e-6);
+  assert.equal(sourceOnly.moved, false);
+  const none = handoffPlacement(handoff({ placement: 'none' }), { ...current, heightsMetres: heights });
+  assert.deepEqual([none.listener, none.source], [current.listener, current.source]);
+  assert.deepEqual([none.listenerHeightMetres, none.sourceHeightMetres], [3, 40]);
+  assert.equal(none.moved, false);
+});
