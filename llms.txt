@@ -1,0 +1,24 @@
+# Echotect
+
+> Echotect is a browser app that turns real-world geometry into delay structures and echo fields. Place a Source and a Listener on a map, an image, or captured terrain; add Reflectors by hand or derive them from nearby building and terrain surfaces; and hear, save, or export the result as impulse responses, renders, stems, and a project manifest.
+
+Echotect runs entirely in the browser, with no account and no server of its own. All Reflectors take part in one path model, including reflections between surfaces: longer paths arrive later and lose more level and high frequencies, materials shape their absorption, and air absorption follows ISO 9613-1. The late field is either sampled paths or a feedback delay network.
+
+Audio exports are stereo, 48 kHz, 32-bit float, with no normalization, clipping, or limiter: a sampled-paths IR, a feedback-network IR, the wet render, the wet render through the browser's HRTF (direct sound and early arrivals binaural, late field stereo; it differs between browsers), and aligned direct, early, and late stems. The project manifest (`"format": "echotect-project"`) holds the geometry, the render settings, and every derived path with its delay, level, octave-band gains, and arrival direction, so the stereo image can be rebuilt elsewhere. An editable project saved with Save is `"format": "echotect-workspace"`.
+
+A sound from Boomtect arrives with a `tect.handoff` JSON that may move the Listener and Source to where it was heard; the sound already holds the air along that distance. A handoff reader fills in missing fields with defaults and never refuses an older or newer version.
+
+## Docs
+
+- [README](https://github.com/janne-s/Echotect/blob/main/README.md): layers, terrain, echo field settings, and the Boomtect link
+- [Live app](https://janne-s.github.io/Echotect/)
+
+## Formats
+
+- [Project manifest](https://github.com/janne-s/Echotect/blob/main/src/project-manifest.js): the exported `echotect-project` JSON
+- [Handoff](https://github.com/janne-s/Echotect/blob/main/src/handoff.js): the `tect.handoff` format shared with Boomtect
+
+## Optional
+
+- [Echotect Field](https://github.com/janne-s/Echotect/blob/main/max-for-live/README.md): a Max for Live device that rebuilds the manifest's direct sound and reflection delays in Ableton Live; functional but rudimentary
+- [Boomtect](https://janne-s.github.io/Boomtect/llms.txt): thunder, blasts, and sonic booms simulated from their physics
