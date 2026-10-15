@@ -313,7 +313,7 @@ function createBasemapToggle() {
   button.innerHTML = '<i class="fa-solid fa-mountain" aria-hidden="true"></i>';
   button.addEventListener('click', () => {
     basemap = basemap === 'relief' ? 'map' : 'relief';
-    try { localStorage.setItem(BASEMAP_STORAGE_KEY, basemap); } catch { /* The view preference is optional. */ }
+    try { localStorage.setItem(BASEMAP_STORAGE_KEY, basemap); } catch {}
     syncBasemap();
   });
   mapContainer.querySelector('.maplibregl-ctrl-bottom-left .maplibregl-ctrl-group')?.append(button);
@@ -2606,7 +2606,7 @@ async function audioClockAdvances(context) {
     return context.state === 'running'
       && context.currentTime - startedAt >= AUDIO_RECOVERY_MINIMUM_CLOCK_ADVANCE_SECONDS;
   } finally {
-    try { oscillator.stop(); } catch { /* A failed context may already have discarded the source. */ }
+    try { oscillator.stop(); } catch {}
     oscillator.disconnect();
     gain.disconnect();
   }
@@ -2699,7 +2699,7 @@ function stopPlayback() {
   const playback = activePlayback;
   activePlayback = null;
   playback.sources.forEach(source => {
-    try { source.stop(); } catch { /* A source that has already ended needs no action. */ }
+    try { source.stop(); } catch {}
   });
   clearPlaybackProgress();
   clearReflectionPulses();

@@ -57,7 +57,7 @@ export function parseCoordinates(value) {
   if (!text) return null;
 
   let decoded = text;
-  try { decoded = decodeURIComponent(text); } catch { /* Keep original text. */ }
+  try { decoded = decodeURIComponent(text); } catch {}
 
   const tagged = hemisphereCoordinates(decoded);
   if (tagged && isValidCoordinate(tagged)) return tagged;
