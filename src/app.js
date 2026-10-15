@@ -3046,13 +3046,34 @@ function spatialMonitorChannels({ inputMono, plan, rendered }) {
   return channels;
 }
 
-async function renderedMonitorChannels(data) {
-  if (!data.hrtfMonitor) return spatialMonitorChannels(data);
-  const frameCount = data.rendered.late[0].length;
-  const context = new OfflineAudioContext(2, frameCount, WAV_SAMPLE_RATE);
-  playHrtfMonitor(context, data.inputMono, data.rendered.late, data.reflectors, data.directArrival, data.plan, data.earlyEvents);
+async function renderHrtfChannels({ inputMono, rendered, reflectors, directArrival, plan, earlyEvents }) {
+  const context = new OfflineAudioContext(2, rendered.late[0].length, WAV_SAMPLE_RATE);
+  playHrtfMonitor(context, inputMono, rendered.late, reflectors, directArrival, plan, earlyEvents);
   const buffer = await context.startRendering();
   return [new Float32Array(buffer.getChannelData(0)), new Float32Array(buffer.getChannelData(1))];
+}
+
+async function renderedMonitorChannels(data) {
+  return data.hrtfMonitor ? renderHrtfChannels(data) : spatialMonitorChannels(data);
+}
+
+/**
+ * The wet render with the direct sound and early arrivals through this browser's HRTF; the late
+ * field stays spatial stereo, as in HRTF playback. Browsers use different HRTF sets.
+ */
+function renderHrtfWet(inputMono, late) {
+  const placement = propagation();
+  const geometry = {
+    source: placement.source, listener: placement.listener, settings: renderSettings(),
+    sampleRate: WAV_SAMPLE_RATE, distanceMetres: placement.distanceMetres
+  };
+  const reflectors = exportReflectors();
+  return renderHrtfChannels({
+    inputMono, rendered: { late }, reflectors,
+    directArrival: createDirectArrivalEvent({ ...geometry, occluded: placement.directOccluded }),
+    earlyEvents: createEarlyArrivalEvents({ ...geometry, reflectors }),
+    plan: { playOnset: false, playDirectArrival: true }
+  });
 }
 
 $('#play-button').addEventListener('click', async () => {
@@ -3250,7 +3271,7 @@ $('#default-sound').addEventListener('click', () => {
 });
 
 const EXPORT_OUTPUTS_BY_SELECTION = Object.freeze({
-  convolution: ['convolutionIr'], fdn: ['fdnIr'], wet: ['wet'], stems: ['direct', 'early', 'late']
+  convolution: ['convolutionIr'], fdn: ['fdnIr'], wet: ['wet'], hrtf: ['late'], stems: ['direct', 'early', 'late']
 });
 const exportSelectionInputs = () => [...document.querySelectorAll('input[name="export-item"]')];
 const exportReflectors = () => audibleReflectors().map(reflector => ({
@@ -3314,6 +3335,7 @@ function exportSizes() {
     convolution: wavByteLength(convolutionIrFrames),
     fdn: wavByteLength(fdnIrFrames),
     wet: wavByteLength(timelineFrames),
+    hrtf: wavByteLength(timelineFrames),
     stems: wavByteLength(timelineFrames) * STEM_FILE_COUNT
   };
 }
@@ -3447,6 +3469,7 @@ $('#export-form').addEventListener('submit', async event => {
       if (selected.has('convolution')) addWav('ir-sampled-paths', audio.convolutionIr);
       if (selected.has('fdn')) addWav('ir-rendered-fdn', audio.fdnIr);
       if (selected.has('wet')) addWav('wet', audio.wet);
+      if (selected.has('hrtf')) addWav('wet-hrtf', await renderHrtfWet(inputMono, audio.late));
       if (selected.has('stems')) { addWav('stem-direct', audio.direct); addWav('stem-early', audio.early); addWav('stem-late', audio.late); }
     }
     if (files.length === 1) downloadExport(files[0].name, files[0].data, files[0].name.endsWith('.json') ? 'application/json' : 'audio/wav');
