@@ -4,7 +4,6 @@
 
     var FORMAT = "echotect-project";
     var VERSION = "2.0.0";
-    // Echotect allows 4096 early paths plus the direct arrival.
     // Max poly~ banks are split below their per-instance 1023 voice limit.
     var MAX_VOICES = 4097;
 
@@ -77,7 +76,6 @@
 
     function pathsFromManifest(manifest) {
         var direct = manifest.derived.direct;
-        // Terrain between Source and Listener blocks the direct path; it has no voice.
         var paths = occluded(direct) ? [] : [{
             id: "direct",
             kind: "direct",

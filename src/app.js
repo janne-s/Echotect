@@ -75,7 +75,6 @@ function storedMapView() {
     const view = JSON.parse(localStorage.getItem(MAP_VIEW_STORAGE_KEY));
     if (isValidCoordinate(view) && Number.isFinite(view.zoom) && view.zoom >= 0 && view.zoom <= MAXIMUM_ZOOM) return view;
   } catch {
-    // A missing, blocked, or malformed local value should not prevent startup.
   }
   return { ...DEFAULT_MAP_VIEW };
 }
@@ -141,7 +140,6 @@ function copiedPlacement(value) {
   };
 }
 
-/** The map Source and Listener with their heights above the ground (`geo.js` lifts paths with them). */
 function liftedMapPoints() {
   const { source, listener, heightsMetres } = state.mapPlacement;
   return { source: { ...source, heightMetres: heightsMetres.source }, listener: { ...listener, heightMetres: heightsMetres.listener } };
@@ -180,7 +178,6 @@ function storedReflectors(values) {
 function storedWorkspace() {
   try {
     const saved = JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY));
-    // A stored workspace is read like a project: a part it lacks or cannot use takes its default.
     if (!saved || typeof saved !== 'object') return null;
     const mapPlacement = storedPlacement(saved.mapPlacement) ?? copiedPlacement(DEFAULT_MAP_PLACEMENT);
     const terrainSpace = storedTerrainSpace(saved.terrainSpace);
@@ -213,21 +210,18 @@ function storedWorkspace() {
 }
 
 const state = storedWorkspace() ?? defaultWorkspace();
-// The air in a sound belongs to that sound, and a sound is not kept between sessions.
 state.settings.echoField = { ...state.settings.echoField, sourceAirMetres: 0 };
 state.buildingsVisible = false;
 let activeTool = null;
 let audioContext;
 let importedAudioBuffer = null;
 let importedAudioName = null;
-/** The air path already absorbed in the imported sound, metres (`pathBandGains`). */
 let importedAudioAirMetres = 0;
 let defaultHandclapBuffer = null;
 let audioSourceRevision = 0;
 let monitorRenderCache = null;
 let renderedPlayback = null;
 let renderingPlayback = false;
-/** The render under way; cancelling forgets it, so its result is not used. */
 let activeRender = null;
 let activePlayback = null;
 let playbackProgressTimer = null;
@@ -305,8 +299,7 @@ function collapseInitialMapAttribution() {
   attributionDetails?.removeAttribute('open');
 }
 
-// MapLibre 5.24 expands compact attribution again when asynchronous source metadata arrives.
-// Collapse after that initialization has completed; CSS prevents an expanded-state flash meanwhile.
+// MapLibre 5.24 expands compact attribution again when async source metadata arrives.
 map.once('load', () => {
   collapseInitialMapAttribution();
   mapContainer.classList.remove('map-attribution-initializing');
@@ -348,7 +341,6 @@ map.on('moveend', () => {
       zoom: map.getZoom()
     }));
   } catch {
-    // The map remains usable when browser storage is unavailable.
   }
 });
 
@@ -359,7 +351,6 @@ const pointFromLngLat = lngLat => ({ latitude: lngLat.lat, longitude: lngLat.lng
 
 let workspaceSaveTimer = null;
 
-/** Continuous interaction schedules a save; a save is only written once the interaction settles. */
 function scheduleSave() {
   syncPlayButton();
   clearTimeout(workspaceSaveTimer);
@@ -373,7 +364,6 @@ function saveWorkspaceNow() {
 
 window.addEventListener('pagehide', saveWorkspaceNow);
 
-/** The heightfield is encoded once per capture; settings changes do not re-encode it. */
 function storableTerrainSpace() {
   if (!state.terrainSpace) return null;
   if (storedHeightfield?.capture !== state.terrainSpace.capture) {
@@ -400,7 +390,6 @@ function saveWorkspace() {
       settings: state.settings
     }));
   } catch {
-    // The current session remains usable when browser storage is unavailable.
   }
 }
 
@@ -473,7 +462,6 @@ function syncMarkers() {
 
 const formatHeight = metres => `${metres < 10 ? metres.toFixed(1) : Math.round(metres)} m`;
 
-/** Map heights are shown on the markers once they differ from the level default. */
 const mapHeightsLevel = () => Object.values(state.mapPlacement.heightsMetres).every(height => height === MAP_HEIGHT_RANGE.fallback);
 
 function syncMarkerHeights() {
@@ -495,7 +483,6 @@ function syncMarkerHeights() {
   });
 }
 
-/** The map space's height sliders; the terrain space has its own in its panel. */
 function syncMapHeights() {
   $('#map-heights').hidden = terrainActive();
   ['source', 'listener'].forEach(role => {
@@ -544,10 +531,6 @@ function activeTerrainFrame() {
   return cachedTerrainFrame.frame;
 }
 
-/**
- * The Source and Listener as sound travels between them in the active space. In a terrain they
- * carry positions in the terrain frame and distances are straight lines through the air.
- */
 function propagation() {
   const placement = activePlacement();
   const frame = activeTerrainFrame();
@@ -561,7 +544,6 @@ function propagation() {
   };
 }
 
-/** Terrain occlusion is part of the terrain itself, so it always applies there. */
 const renderSettings = () => terrainActive() ? { ...state.settings.echoField, buildingOcclusion: true } : state.settings.echoField;
 
 const selectedStructure = () => state.structures.find(structure => structure.id === selectedStructureId) ?? null;
@@ -832,7 +814,6 @@ function clearTerrainHandles() {
   terrainHandles.splice(0).forEach(marker => marker.remove());
 }
 
-/** Corner handles reshape the captured rectangle; the corner opposite the dragged one stays put. */
 function syncTerrainHandles() {
   const frame = activeTerrainFrame();
   if (!frame) { clearTerrainHandles(); return; }
@@ -1047,11 +1028,6 @@ async function loadTerrain(bounds) {
   }
 }
 
-/**
- * A Source or Listener where the terrain cannot hear it is moved: into the rectangle's centre for
- * Canyon, under the highest ceiling for Chamber, one cell to either side. Points far apart in rough
- * terrain often share no visible surface at all, and then there is no echo to hear.
- */
 function placePointsInsideTerrain(space, placement = activeTerrainPlacement()) {
   const frame = terrainFrame(space);
   const anchor = space.mode === 'interior' ? tallestCavityPoint(frame)?.point : frame.pivot;
@@ -1248,7 +1224,6 @@ function updateDirectPathMetrics() {
   output.textContent = `Source → Listener: ${formatDistance(metres)} · ${seconds.toFixed(3)} s${placement.directOccluded ? ' · blocked' : ''}`;
 }
 
-/** Card elements that change while the geometry or levels change, kept per reflector id. */
 const reflectionCards = new Map();
 
 function reflectionCard(reflector, index) {
@@ -1322,13 +1297,11 @@ function syncLinkControls() {
   $('#link-points').setAttribute('aria-pressed', String(linked));
   $('.link-label').textContent = linked ? 'Unlink' : 'Link';
   const arrivalsOnly = $('#arrivals-only');
-  // The reason belongs on the label as well, because that is what a pointer lands on.
   arrivalsOnly.closest('label').title = arrivalsOnly.title = linked
     ? 'Mute the source onset. Linked points share one place, so only the reflections remain.'
     : 'Mute the source onset and monitor only what arrives at the Listener.';
 }
 
-/** Moving geometry: routes, derived readouts, and a scheduled save. No card is rebuilt. */
 function renderGeometry({ rebuildField = true } = {}) {
   syncRoutes();
   syncMarkerHeights();
@@ -1339,7 +1312,6 @@ function renderGeometry({ rebuildField = true } = {}) {
   scheduleSave();
 }
 
-/** A changed reflector set, link state, or project: rebuild the cards, then update the geometry. */
 function render() {
   syncLinkControls();
   renderReflectionList();
@@ -1466,7 +1438,6 @@ map.on('mousedown', 'terrain-hit', event => {
 map.on('mouseenter', 'terrain-hit', () => { if (!terrainDrawArmed && !activeTool) map.getCanvas().style.cursor = 'grab'; });
 map.on('mouseleave', 'terrain-hit', () => { if (!terrainMove && !terrainDrawArmed) map.getCanvas().style.cursor = ''; });
 
-/** Moving the rectangle captures the terrain at the new place; its scale stays. */
 function finishTerrainMove() {
   if (!terrainMove) return;
   const { start, end, restoreDragPan, moved } = terrainMove;
@@ -1830,7 +1801,6 @@ Object.entries(echoSettingInputs).forEach(([setting, selector]) => {
   input.addEventListener('input', () => syncEchoSettingOutput(setting));
 });
 
-/** Fills the Echo field tab's controls; nothing changes until the dialog is saved. */
 function fillEchoSettings(echoField, playbackMode) {
   $('#setting-playback-mode').value = playbackMode;
   $('#setting-building-occlusion').checked = echoField.buildingOcclusion;
@@ -1878,7 +1848,6 @@ $('#echo-settings-dialog').addEventListener('close', event => {
 });
 
 function selectSettingsTab(name) {
-  // Defaults belong to the Echo field tab; the terrain's settings are its own.
   $('#settings-defaults').hidden = name !== 'echo';
   document.querySelectorAll('[data-settings-tab]').forEach(tab => {
     const selected = tab.dataset.settingsTab === name;
@@ -1899,7 +1868,7 @@ document.querySelectorAll('[data-settings-tab]').forEach(tab => {
   });
 });
 
-/** Geometric slider resolution. Three decades of scale put 1:1 exactly on a step. */
+/** Three decades of scale over 1200 steps put 1:1 exactly on a step. */
 const SLIDER_STEPS = 1200;
 const GROUND_OFF_POSITION = GROUND_REFLECTION_RANGE.minimum - 1;
 const geometricValue = (position, minimum, maximum) => minimum * (maximum / minimum) ** (position / SLIDER_STEPS);
@@ -1914,7 +1883,6 @@ function formatScale(scale) {
 
 const formatGround = decibels => decibels === null ? 'Off' : `${decibels > 0 ? '+' : ''}${decibels} dB`;
 
-/** A slider left where it opened keeps the exact stored value instead of its rounded position. */
 function setTerrainSlider(input, position, value) {
   input.value = position;
   input.dataset.openedAt = input.value;
@@ -1970,7 +1938,6 @@ function applyTerrainSettings() {
   updateTerrainSpace(pendingTerrainSurface());
 }
 
-/** Every terrain change goes through here: a new space object, the map, the panel, and a rebuild. */
 function updateTerrainSpace(changes, { rebuildImage = false } = {}) {
   const next = normalizeTerrainSpace({ ...state.terrainSpace, ...changes });
   if (!next) return;
@@ -1987,7 +1954,6 @@ function updateTerrainSpace(changes, { rebuildImage = false } = {}) {
   renderGeometry();
 }
 
-/** Scale is a transform of the fixed 1:1 field, not a reason to search for new reflectors. */
 function updateTerrainScale(scale) {
   const next = normalizeTerrainSpace({ ...state.terrainSpace, scale });
   if (!next || next.scale === state.terrainSpace.scale) return;
@@ -2516,7 +2482,6 @@ function writeSearchCache(key, location) {
   try {
     sessionStorage.setItem(key, JSON.stringify(location));
   } catch {
-    // Searching still works without a session cache.
   }
 }
 
@@ -2705,7 +2670,6 @@ function startPlaybackProgress(durationSeconds, delaySeconds = 0) {
   playbackProgressTimer = setTimeout(clearPlaybackProgress, (Math.max(0, delaySeconds) + durationSeconds) * 1000);
 }
 
-/** Finds the last sample above the path cutoff relative to the unchanged source, ignoring filter residue below it. */
 function cutoffDurationSeconds(channels, sampleRate, inputMono) {
   let sourcePeak = 0;
   for (const sample of inputMono) sourcePeak = Math.max(sourcePeak, Math.abs(sample));
@@ -2906,10 +2870,6 @@ function animateReflectionPulses(events, reflectors, lateEvents = [], durationSe
 
 const copyStereo = channels => channels.map(channel => channel.slice());
 
-/**
- * Everything the heard sound depends on. A render stays playable while this is unchanged, so saving
- * the workspace or moving the map while a render runs does not throw it away.
- */
 function playbackKey() {
   const placement = propagation();
   return JSON.stringify({
@@ -2950,7 +2910,6 @@ async function renderMonitorAudio(key, options) {
   return rendered;
 }
 
-/** Mixes the source onset trigger into a rendered monitor mix that the caller owns. */
 function addSourceOnset(channels, inputMono) {
   const gain = SOURCE_ONSET_GAIN * Math.SQRT1_2;
   for (const channel of channels) {
@@ -3057,10 +3016,6 @@ async function renderedMonitorChannels(data) {
   return data.hrtfMonitor ? renderHrtfChannels(data) : spatialMonitorChannels(data);
 }
 
-/**
- * The wet render with the direct sound and early arrivals through this browser's HRTF; the late
- * field stays spatial stereo, as in HRTF playback. Browsers use different HRTF sets.
- */
 function renderHrtfWet(inputMono, late) {
   const placement = propagation();
   const geometry = {
@@ -3082,7 +3037,6 @@ $('#play-button').addEventListener('click', async () => {
     stopPlayback();
     return;
   }
-  // A render under way is abandoned: the browser finishes it in the background, and its result is dropped.
   if (renderingPlayback) {
     activeRender = null;
     renderingPlayback = false;
@@ -3150,11 +3104,6 @@ $('#play-button').addEventListener('click', async () => {
   }
 });
 
-/**
- * Live playback starts every arrival as its own voice, which a long sound such as a thunderclap
- * from Boomtect turns into more work than the browser can do in time. Such a sound switches
- * playback to Rendered, and a short one afterwards switches it back if it was switched.
- */
 const LIVE_PLAYBACK_MAXIMUM_SECONDS = 2;
 let renderedForLongSound = false;
 
@@ -3175,11 +3124,6 @@ function setImportedAudio(buffer, name, airMetres = 0) {
   renderGeometry();
 }
 
-/**
- * Places a handed-over sound: the Listener where it was heard and the Source the way it came from.
- * In the terrain space it stays there when both points lie in the captured terrain; otherwise the
- * map space takes them.
- */
 function placeHandoff(handoff) {
   const next = handoffPlacement(handoff, terrainActive() ? activePlacement() : state.mapPlacement);
   const frame = terrainActive() ? activeTerrainFrame() : null;
@@ -3188,7 +3132,6 @@ function placeHandoff(handoff) {
   const placement = activePlacement();
   releaseSavedEchoField();
   Object.assign(placement, { source: next.source, listener: next.listener, pointsLinked: false });
-  // The terrain space keeps its own heights; in the map space the sound brings them.
   if (placement === state.mapPlacement) state.mapPlacement.heightsMetres = placementHeights({ source: next.sourceHeightMetres, listener: next.listenerHeightMetres });
   syncMarkers();
   render();
@@ -3199,14 +3142,12 @@ function placeHandoff(handoff) {
   }
 }
 
-/** Takes up a handed-over sound as the Source's sound, and places it. */
 function useHandoff(handoff, buffer, label) {
   setImportedAudio(buffer, label, handoffAirMetres(handoff));
   $('#sound-name').textContent = `Sound: ${label}`;
   placeHandoff(handoff);
 }
 
-/** A handoff's interleaved samples as an audio buffer. */
 function handoffBuffer(handoff, samples) {
   const { channels, sampleRateHz } = handoff.audio;
   const frames = samples.length / channels;
@@ -3243,10 +3184,6 @@ $('#audio-file').addEventListener('change', async event => {
   }
 });
 
-/**
- * Another tect, such as Boomtect, sends a sound in a window message (`handoff.js`): Echotect says it
- * is ready when opened by one and whenever greeted, and answers whether it took the sound.
- */
 const TECT_ORIGINS = Object.freeze(['https://janne-s.github.io', 'http://127.0.0.1:8000', 'http://localhost:8000']);
 window.addEventListener('message', event => {
   if (!TECT_ORIGINS.includes(event.origin) || !event.source || typeof event.data?.type !== 'string') return;

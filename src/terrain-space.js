@@ -12,25 +12,19 @@ export const EXTERIOR_HEIGHT_RANGE = Object.freeze({ minimum: .5, maximum: 1000,
 export const GROUND_REFLECTION_RANGE = Object.freeze({ minimum: -24, maximum: 6, fallback: 0 });
 export const SCATTERING_RANGE = Object.freeze({ minimum: 0, maximum: 1, fallback: .5 });
 export const TERRAIN_POINT_ROLES = Object.freeze(['source', 'listener']);
-/** Interior heights keep this clearance from the floor and from the ceiling above the point. */
 const CAVITY_CLEARANCE_METRES = .5;
-/** The ground under a point reaches at least this far, or ten times the point's height. */
 const GROUND_RADIUS_MINIMUM_METRES = 20;
 const GROUND_RADIUS_PER_HEIGHT = 10;
 const DIFFUSE_DELAY_BIN_SECONDS = .001;
 const DIFFUSE_AZIMUTH_SECTOR_DEGREES = 15;
 const DIFFUSE_ELEVATION_SECTOR_DEGREES = 30;
-/** Reflection points sit this far into the air, in cells, which is far under a sample of travel time. */
 const SURFACE_OFFSET_CELLS = 1e-5;
-/** Ray-march samples per analysis cell, and the cells ignored next to a surface endpoint. */
 const MARCH_SAMPLES_PER_CELL = 1;
 const ENDPOINT_SKIP_CELLS = 1;
 const INTERIOR_SUBSAMPLES = 4;
-/** Newton search for specular points: finite-difference step and convergence, in cells. */
 const NEWTON_STEP_CELLS = .01;
 const NEWTON_TOLERANCE_CELLS = 1e-7;
 const NEWTON_ITERATIONS = 16;
-/** Energy gain of a focusing concave reflection at most, +12 dB, where the caustic would diverge. */
 const MAXIMUM_FOCUSING_ENERGY = 16;
 const MAXIMUM_TERRAIN_VALUES = MAXIMUM_GRID_CELLS * MAXIMUM_GRID_CELLS;
 
@@ -40,7 +34,6 @@ const normalizedHeights = value => Object.fromEntries(TERRAIN_MODES.map(mode => 
   TERRAIN_POINT_ROLES.map(role => [role, boundedValue(value?.[mode]?.[role], EXTERIOR_HEIGHT_RANGE)])
 )]));
 
-/** The saved height for a Source or Listener in one terrain mode. */
 export function terrainHeightMetres(space, role, mode = space.mode) {
   if (!TERRAIN_MODES.includes(mode) || !TERRAIN_POINT_ROLES.includes(role)) throw new RangeError('Terrain height mode or role is invalid.');
   return space.heightsMetres[mode][role];
@@ -74,7 +67,6 @@ export function validCapture(capture) {
     && capture.values.every(Number.isFinite);
 }
 
-/** Accepts stored or edited terrain-space values and returns a complete, in-range space, or null. */
 export function normalizeTerrainSpace(value) {
   if (!validCapture(value?.capture)) return null;
   const capture = value.capture;
@@ -95,7 +87,6 @@ export function createTerrainSpace(capture) {
   return normalizeTerrainSpace({ capture });
 }
 
-/** Float32 samples as little-endian base64, independent of the platform's byte order. */
 export function encodeHeightfield(values) {
   const view = new DataView(new ArrayBuffer(values.length * 4));
   values.forEach((value, index) => view.setFloat32(index * 4, value, true));
@@ -117,7 +108,6 @@ export function decodeHeightfield(text, expectedLength) {
   return values;
 }
 
-/** The serializable description of a terrain space; `includeHeightfield` adds the samples. */
 export function serializeTerrainSpace(space, { includeHeightfield = true } = {}) {
   const { values, ...capture } = space.capture;
   const { minimumMetres, maximumMetres } = elevationRange(values);
@@ -162,13 +152,6 @@ export function parseTerrainSpace(value) {
   return space;
 }
 
-/**
- * The metric frame of a terrain space. Captured coordinates are metres east and north of the
- * capture centre with elevation in metres, and the map shows the terrain there at its true size.
- * World coordinates are the acoustic space: the same frame scaled uniformly about the centre and
- * the lowest captured elevation. Sound travels through the world frame; the scale never moves
- * anything on the map.
- */
 export function terrainFrame(space) {
   const { capture, scale, mode } = space;
   const { columns, rows, values, widthMetres, heightMetres } = capture;
@@ -234,11 +217,6 @@ export function terrainFrame(space) {
   };
 }
 
-/**
- * Places a Source or Listener in the terrain. Exterior heights are above the surface under the
- * point; interior heights are above the floor and are clamped below the ceiling. A point outside
- * the captured rectangle, or in the interior where there is no cavity, is not valid.
- */
 export function placePoint(frame, point, heightMetres) {
   const world = frame.worldFromPoint(point);
   const surface = frame.surfaceZ(world.x, world.y);
@@ -283,11 +261,6 @@ export function arrivalElevationDegrees(listener, emitter) {
   return Math.atan2(dz, Math.hypot(dx, dy)) * 180 / Math.PI;
 }
 
-/**
- * Whether the straight segment between two world points stays in the air: above the surface in
- * exterior mode, and between the floor and the surface in interior mode. Samples within one cell
- * of an endpoint that lies on a surface are ignored, because that surface owns the endpoint.
- */
 export function segmentClear(frame, a, b, { skipStart = false, skipEnd = false } = {}) {
   const { scale, cellX, cellY, referenceElevation, mode, floor, elevation } = frame;
   const ax = a.x / scale; const ay = a.y / scale; const az = a.z / scale + referenceElevation;
@@ -315,11 +288,6 @@ function surfaceNormal(frame, index) {
   return { x: -gradientX / length, y: -gradientY / length, z: 1 / length, slopeFactor: length };
 }
 
-/**
- * The reflecting facets of a terrain space in world coordinates. Exterior: one upward facet per
- * cell. Interior: a downward ceiling facet and an upward floor facet per cell above the floor,
- * with area reduced to the share of the cell that lies inside the cavity.
- */
 export function terrainFacets(frame) {
   const { columns, rows, cellX, cellY, values, scale, widthMetres, heightMetres, mode, floor, elevation, toWorldZ } = frame;
   const facets = [];
@@ -380,10 +348,6 @@ const unit = vector => {
   return { x: vector.x / size, y: vector.y / size, z: vector.z / size };
 };
 
-/**
- * Horizontal gradient of the Source → point → Listener path length for a point that follows a
- * surface given by its height and slope. It is zero exactly where the surface reflects specularly.
- */
 function pathGradient(S, L, x, y, z, slope) {
   const p = { x, y, z };
   const fromSource = unit(subtract(p, S));
@@ -404,14 +368,7 @@ function jacobian(gradient, x, y, step) {
 
 const determinant = matrix => matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0];
 
-/**
- * Specular points on the terrain surface (exterior) or ceiling (interior): the stationary points of
- * the path length along the surface, which is Fermat's principle for reflection. The surface uses
- * bilinear heights and a continuous slope field so a reflection between two cells is not lost.
- * Each point's energy relative to an image source follows stationary phase: the ratio of the path
- * Hessian on the tangent plane to the one on the curved surface, so a convex slope weakens its
- * echo and a concave one focuses it, capped at MAXIMUM_FOCUSING_ENERGY at a caustic.
- */
+/** Fermat specular points; energy against an image source by stationary phase, capped at a caustic. */
 function surfaceSpecularPoints(frame, S, L) {
   const { columns, rows, cellX, cellY, scale, widthMetres, heightMetres, values, floor, mode } = frame;
   const worldCell = Math.min(cellX, cellY) * scale;
@@ -476,7 +433,6 @@ function surfaceSpecularPoints(frame, S, L) {
   return [...found.values()];
 }
 
-/** The specular point of the flat interior floor, from its exact image source. */
 function floorSpecularPoint(frame, S, L) {
   const mirroredZ = 2 * frame.floorZ - S.z;
   const t = (frame.floorZ - mirroredZ) / (L.z - mirroredZ);
@@ -486,14 +442,7 @@ function floorSpecularPoint(frame, S, L) {
   return { key: `${Math.round(point.x / frame.scale * 1000)},${Math.round(point.y / frame.scale * 1000)}`, surface: 'floor', point, normal: { x: 0, y: 0, z: 1 }, focusing: 1 };
 }
 
-/**
- * First-order terrain reflections for a placed Source and Listener, as reflectors the early and
- * late paths can use. The scattering setting `s` splits each surface's energy: `1 − s` reflects
- * specularly at the surface's specular points, each one an exact reflector; `s` scatters from every
- * facet as a Lambertian patch, `A · cosθᵢ · cosθₒ / π · (r / r₁r₂)²` relative to an image source
- * over the same total path, and diffuse patches merge by arrival time, azimuth, and elevation.
- * Ground is the surface the points stand over, and follows `groundReflectionDb`.
- */
+/** Diffuse share s scatters as Lambertian patches, A·cosθᵢ·cosθₒ/π·(r/r₁r₂)² against an image source. */
 export function terrainReflectors({ frame, facets = terrainFacets(frame), source, listener, globalReflectionLevelDb, maxSurfaces, speedOfSound }) {
   const { space } = frame;
   const S = source.positionMetres;
@@ -574,7 +523,6 @@ export function terrainReflectors({ frame, facets = terrainFacets(frame), source
   }));
 }
 
-/** Which terrain reflectors can reach each other through the air, for multi-bounce paths. */
 export function terrainVisibility(frame, reflectors) {
   const visible = new Map(reflectors.map(reflector => [reflector.id, []]));
   for (let first = 0; first < reflectors.length; first += 1) {
@@ -589,7 +537,6 @@ export function terrainVisibility(frame, reflectors) {
   return visible;
 }
 
-/** Everything the echo field needs from an unscaled terrain and one Source and Listener placement. */
 export function buildCanonicalTerrainField({ space, facets = null, source, listener, globalReflectionLevelDb, maxSurfaces, speedOfSound }) {
   if (space.scale !== 1) throw new RangeError('A canonical terrain field must use scale 1.');
   const frame = terrainFrame(space);
@@ -626,7 +573,6 @@ const scaledPlacedPoint = (point, scale) => ({
   ...(point.positionMetres ? { positionMetres: scaledPosition(point.positionMetres, scale) } : {})
 });
 
-/** Applies acoustic scale after the reflector field has been fixed at 1:1. Map positions stay put. */
 export function scaleTerrainField(field, scale) {
   return {
     ...field,
@@ -640,7 +586,6 @@ export function scaleTerrainField(field, scale) {
   };
 }
 
-/** Builds a stable 1:1 field, then uniformly scales every acoustic position in that field. */
 export function buildTerrainField({ space, facets = null, source, listener, globalReflectionLevelDb, maxSurfaces, speedOfSound }) {
   const canonicalSpace = space.scale === 1 ? space : { ...space, scale: 1 };
   const field = buildCanonicalTerrainField({
@@ -650,7 +595,6 @@ export function buildTerrainField({ space, facets = null, source, listener, glob
   return scaleTerrainField(field, space.scale);
 }
 
-/** Line segments where the ceiling meets the floor, in map coordinates, for the interior outline. */
 export function floorOutline(frame) {
   const { columns, rows, cellX, cellY, values, widthMetres, heightMetres, floor } = frame;
   const segments = [];
@@ -676,7 +620,6 @@ export function floorOutline(frame) {
   return segments.map(segment => segment.map(point => frame.pointFromWorld({ x: point.x * frame.scale, y: point.y * frame.scale })));
 }
 
-/** The map point under the tallest part of the cavity, where a first listen is least likely to be cramped. */
 export function tallestCavityPoint(frame) {
   const { columns, rows, values, cellX, cellY, widthMetres, heightMetres, floor } = frame;
   let best = -1;
@@ -689,11 +632,6 @@ export function tallestCavityPoint(frame) {
   return { point: frame.pointFromWorld({ x: x * frame.scale, y: y * frame.scale }), cellMetres: Math.min(cellX, cellY) };
 }
 
-/**
- * The vertical section through the Source and the Listener, across the whole captured rectangle,
- * in world metres. Distance runs from where the line enters the rectangle; when the two points
- * coincide the section runs east–west through them.
- */
 export function sectionProfile(frame, source, listener, samples = 256) {
   const { widthMetres, heightMetres, scale } = frame;
   const start = frame.worldFromPoint(source);

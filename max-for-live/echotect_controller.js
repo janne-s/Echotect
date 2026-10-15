@@ -11,7 +11,6 @@ var paths = [];
 var omittedPathCount = 0;
 var VOICES_PER_BANK = 1023;
 var BANK_COUNT = Math.ceil(EchotectModel.MAX_VOICES / VOICES_PER_BANK);
-// Scale reaches 4x, so a delay line must hold four times its propagation time plus a margin.
 var MAXIMUM_SCALE = 4;
 var DELAY_CAPACITY_MARGIN_MS = 100;
 var controls = {

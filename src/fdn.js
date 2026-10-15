@@ -2,16 +2,12 @@ import { propagationSeconds } from './geo.js';
 import { clampToRange } from './range.js';
 import { equalPowerGains, stereoPan } from './spatial.js';
 
-/** Neutral delay-line lengths, blended with the geometry by geometryInfluence. */
 const BASE_DELAYS_MS = [29.7, 37.1, 41.1, 43.7, 47.9, 53.3, 59.3, 67.7];
-/** Density stretches every delay line between 70 % and 110 % of its tuned length. */
 const DENSITY_LENGTH_MINIMUM = .7;
 const DENSITY_LENGTH_RANGE = .4;
 const MINIMUM_DELAY_SAMPLES = 2;
-/** Three decades of amplitude, that is −60 dB, over the requested tail length. */
 const DECAY_DECADES_PER_TAIL = 3;
 const MAXIMUM_FEEDBACK = .995;
-/** Neutral stereo placement, blended with the geometry by geometryInfluence. */
 const BASE_PANS = [-.82, .63, -.38, .9, .28, -.68, .48, -.12];
 const DAMPING_RANGE = Object.freeze({ minimum: .02, maximum: .98 });
 const DENSITY_RANGE = Object.freeze({ minimum: .05, maximum: 1 });
@@ -81,7 +77,6 @@ export function createFdnConfiguration({ sampleRate, listener, reflectors, headi
   };
 }
 
-/** Physical reflection arrivals excite the late network instead of an unrelated frame-zero impulse. */
 export function createFdnInjections(earlyEvents, configuration) {
   if (!earlyEvents.length) return [];
   const lineIndices = new Map();

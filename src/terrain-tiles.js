@@ -13,7 +13,6 @@ const MINIMUM_TILE_ZOOM = 1;
 const MAXIMUM_TILE_REQUESTS = 36;
 const MAX_MERCATOR_LATITUDE = 85.05112878;
 const EARTH_CIRCUMFERENCE_METRES = 40075016.686;
-/** The analysis grid is capped on its long side; the facet model scales with its cell count. */
 export const MAXIMUM_GRID_CELLS = 256;
 export const MINIMUM_GRID_CELLS = 4;
 export const MINIMUM_CAPTURE_EXTENT_METRES = 100;
@@ -22,15 +21,11 @@ export const MAXIMUM_CAPTURE_EXTENT_METRES = 80000;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 const METRES_PER_DEGREE = EARTH_RADIUS_METRES * Math.PI / 180;
 
-/**
- * Metres per degree in the terrain frame, on the same sphere as the project's haversine distance,
- * so a terrain distance and a map distance between the same two points agree.
- */
+/** The haversine sphere, so terrain and map distances between the same points agree. */
 export const terrainMetresPerDegree = latitude => ({ north: METRES_PER_DEGREE, east: METRES_PER_DEGREE * Math.cos(latitude * Math.PI / 180) });
 
 export const decodeTerrarium = (red, green, blue) => red * 256 + green + blue / 256 - 32768;
 
-/** Drop of a level surface below the tangent plane at the capture centre, in metres. */
 export const curvatureDropMetres = horizontalMetres => horizontalMetres ** 2 / (2 * EARTH_RADIUS_METRES);
 
 export const tileX = (longitude, zoom) => (longitude + 180) / 360 * 2 ** zoom;
@@ -56,7 +51,6 @@ export function captureCentre(bounds) {
   return { latitude: (bounds.north + bounds.south) / 2, longitude: (bounds.east + bounds.west) / 2 };
 }
 
-/** Width and height of the capture in metres, measured in the flat frame at its centre. */
 export function captureExtentMetres(bounds) {
   const { north, east } = terrainMetresPerDegree(captureCentre(bounds).latitude);
   return { widthMetres: (bounds.east - bounds.west) * east, heightMetres: (bounds.north - bounds.south) * north };
@@ -72,10 +66,6 @@ export function validCaptureBounds(bounds) {
     && Math.max(widthMetres, heightMetres) <= MAXIMUM_CAPTURE_EXTENT_METRES;
 }
 
-/**
- * The tile zoom and analysis grid for a capture. The grid samples close to the DEM's native
- * resolution and never finer than the tiles; its long side is capped at MAXIMUM_GRID_CELLS.
- */
 export function capturePlan(bounds) {
   if (!validCaptureBounds(bounds)) throw new RangeError('The terrain rectangle is outside the supported size.');
   const { widthMetres, heightMetres } = captureExtentMetres(bounds);
@@ -90,11 +80,6 @@ export function capturePlan(bounds) {
   return { zoom, tiles: tileRange(bounds, zoom), widthMetres, heightMetres, columns, rows, centre };
 }
 
-/**
- * Resamples decoded tiles to the analysis grid in the local east-north frame at the capture
- * centre, row 0 in the south, and lowers every sample onto the tangent plane at that centre.
- * `elevationAt(tilePixelX, tilePixelY)` reads the mosaic in global tile pixels at the plan zoom.
- */
 export function buildHeightfield(plan, elevationAt) {
   const { columns, rows, centre, zoom } = plan;
   const cellMetres = plan.widthMetres / columns;
@@ -135,11 +120,7 @@ async function inflate(bytes) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-/**
- * Decodes an 8-bit, non-interlaced RGB, RGBA, or palette PNG to its exact RGB bytes. Elevation is
- * data, not an image: reading it back through a canvas lets colour management and the browser's
- * anti-fingerprinting noise alter the channels, and one step in the red channel is 256 m.
- */
+/** Not through a canvas: colour management and anti-fingerprinting noise alter elevation, one red step being 256 m. */
 export async function decodePngRgb(buffer) {
   const bytes = new Uint8Array(buffer);
   if (!PNG_SIGNATURE.every((value, index) => bytes[index] === value)) throw new Error('Terrain tile is not a PNG.');
@@ -196,7 +177,6 @@ async function decodeTile(response) {
   return elevations;
 }
 
-/** Fetches the tiles under `bounds` and returns the captured terrain with its provenance. */
 export async function captureTerrain(bounds, { signal } = {}) {
   const plan = capturePlan(bounds);
   const { tiles, zoom } = plan;

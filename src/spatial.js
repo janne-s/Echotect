@@ -23,14 +23,12 @@ export function hrtfPosition(listener, emitter, listenerHeadingDegrees = 0) {
   return { x: Math.sin(relativeAzimuth), y: 0, z: -Math.cos(relativeAzimuth) };
 }
 
-/** Canonical stereo placement: -1 is fully left, +1 fully right, 0 centre. */
 export function stereoPan(listener, emitter, listenerHeadingDegrees = 0, spatialAudio = true) {
   if (!spatialAudio) return 0;
   const position = hrtfPosition(listener, emitter, listenerHeadingDegrees);
   return clampToRange(position?.x ?? 0, PAN_RANGE);
 }
 
-/** Deterministic equal-power stereo gains used by preview and every WAV export. */
 export function equalPowerGains(pan) {
   const bounded = clampToRange(pan, PAN_RANGE);
   return [Math.sqrt((1 - bounded) / 2), Math.sqrt((1 + bounded) / 2)];

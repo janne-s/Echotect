@@ -1,13 +1,10 @@
 import { floorOutline } from './terrain-space.js';
 
-/** Light from the north-west, 45° above the horizon, as map hillshades conventionally use. */
 const LIGHT = Object.freeze({ x: -.5, y: .5, z: Math.SQRT1_2 });
 const SHADE_MINIMUM = 40;
 const SHADE_RANGE = 200;
-/** Interior cells outside the cavity are drawn at this share of their shade. */
 const OUTSIDE_CAVITY_SHADE = .3;
 
-/** A grayscale hillshade of the captured terrain, north up, as a PNG data URL. */
 export function hillshadeDataUrl(frame) {
   const { columns, rows, values, gradientX, gradientY, mode, floor } = frame;
   const canvas = document.createElement('canvas');
@@ -33,7 +30,6 @@ export function hillshadeDataUrl(frame) {
   return canvas.toDataURL('image/png');
 }
 
-/** MapLibre image-source corners: top left, top right, bottom right, bottom left. */
 export const footprintCoordinates = frame => frame.footprint().map(point => [point.longitude, point.latitude]);
 
 export function footprintGeoJson(frame) {

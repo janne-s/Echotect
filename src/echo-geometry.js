@@ -1,21 +1,14 @@
 import { metresPerDegreeLatitude, metresPerDegreeLongitude } from './geo.js';
 
-/** Intersections below this determinant are parallel; endpoints this close count as touching. */
 const PARALLEL_EPSILON = 1e-8;
 const ENDPOINT_EPSILON = 1e-5;
-/** Square metres. Shorter walls cannot carry a stable reflection point. */
 const MINIMUM_WALL_LENGTH_SQUARED = .01;
-/** Tolerance in square metres for deciding which side of a wall a point is on. */
 const WALL_SIDE_EPSILON = .01;
-/**
- * Walls are pre-selected in the flat metre grid while the accepted radius is measured with the
- * project distance method, so the pre-selection keeps a margin and never rejects a valid wall.
- */
+/** The pre-selection is flat while the radius uses the project distance, so it keeps a margin. */
 const RADIUS_PREFILTER_MARGIN = 1.05;
 
 const LISTENER_ORIGIN = Object.freeze({ x: 0, y: 0 });
 
-/** Local metre grid centred on the origin, used for the flat wall geometry around the Listener. */
 function coordinateSpace(origin) {
   const eastScale = metresPerDegreeLongitude(origin.latitude);
   const northScale = metresPerDegreeLatitude();
@@ -31,13 +24,8 @@ function coordinateSpace(origin) {
   };
 }
 
-/** Floors are taken as 3 m each when a building gives only its number of floors. */
 const METRES_PER_FLOOR = 3;
 
-/**
- * A building's height in metres from its map attributes, or null when it gives none: a wall of
- * unknown height is never passed over, since building heights are optional data.
- */
 export function buildingHeightMetres(properties = {}) {
   const height = Number(properties.height);
   if (Number.isFinite(height) && height > 0) return height;
@@ -57,7 +45,6 @@ function ringArea(ring) {
 const cross = (ax, ay, bx, by) => ax * by - ay * bx;
 const clamp01 = value => Math.max(0, Math.min(1, value));
 
-/** Writes the two segment parameters into `out` and reports whether the segments are not parallel. */
 function intersectionParameters(firstStart, firstEnd, secondStart, secondEnd, out) {
   const firstX = firstEnd.x - firstStart.x;
   const firstY = firstEnd.y - firstStart.y;
@@ -90,11 +77,6 @@ function clearPath(start, end, obstacles, targetKey, parameters) {
   return true;
 }
 
-/**
- * Prepares one rebuild: a single metre grid centred on the Listener, the Source in that grid, and
- * every wall that could block a Source → point → Listener path projected once. Walls outside the
- * box that holds those paths cannot block one and are dropped here instead of in every wall test.
- */
 export function reflectionField({ source, listener, walls, radiusMetres }) {
   const space = coordinateSpace(listener);
   const sourceXY = space.toXY([source.longitude, source.latitude]);
@@ -121,10 +103,6 @@ export function reflectionField({ source, listener, walls, radiusMetres }) {
   return { space, source, listener, sourceXY, obstacles, radiusMetres };
 }
 
-/**
- * Builds the reflector visibility graph once so recursive path searches do not ray cast at every
- * bounce. Endpoint walls are ignored: touching the wall that owns a reflection point is expected.
- */
 export function reflectorVisibilityGraph(field, reflectors) {
   const projected = reflectors.map(reflector => ({
     reflector,
@@ -161,11 +139,6 @@ export function reflectorVisibilityGraph(field, reflectors) {
   return new Map(projected.map(item => [item.reflector.id, item.visible]));
 }
 
-/**
- * The reflection point a wall contributes, or null. Prefers the exact mirror point and falls back
- * to a diffuse point on the same wall; both must stay inside the radius and be visible from the
- * Source and the Listener.
- */
 export function wallReflectionCandidate(field, wall, distanceMetres) {
   const { space, sourceXY, obstacles, radiusMetres, listener } = field;
   const a = space.toXY(wall.edge[0]);

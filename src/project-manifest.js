@@ -14,10 +14,6 @@ const placedPoint = value => ({
   ...(value.positionMetres ? { positionMetres: { east: value.positionMetres.x, north: value.positionMetres.y, up: value.positionMetres.z }, heightMetres: value.heightMetres } : {})
 });
 
-/**
- * `terrainSpace` is present when a terrain is the echo field. Its Source, Listener, and reflectors
- * then carry positions in the terrain frame, and distances are straight lines in that frame.
- */
 export function createProjectManifest({ projectId, projectName, createdAt, source, listener, reflectors, globalReflectionLevelDb, globalMaterial, pointsLinked, heading, echoField, echoFieldSettings, inputName, inputDurationSeconds, terrainSpace = null, distanceMetres = mapDistanceMetres, directOccluded = false }) {
   const speedOfSound = soundSpeedMetresPerSecond(echoFieldSettings);
   const direct = createDirectArrivalEvent({ source, listener, settings: echoFieldSettings, distanceMetres, occluded: directOccluded });

@@ -9,11 +9,6 @@ export const AIR_MODES = Object.freeze(['standard', 'custom', 'off']);
 export const DEFAULT_AIR_MODE = 'standard';
 const MAXIMUM_SOURCE_AIR_METRES = 1e6;
 
-/**
- * The one description of every echo field setting: its bounds, its slider step, and the value used
- * when a stored or entered value is missing or unusable. The dialog controls, the stored workspace,
- * and the project manifest all derive from this table.
- */
 export const ECHO_FIELD_SETTINGS = Object.freeze({
   durationSeconds: {
     minimum: 1,
@@ -122,7 +117,6 @@ export const ECHO_FIELD_SETTINGS = Object.freeze({
     fallback: .7 }
 });
 
-/** Accepts stored JSON or raw input values and always returns a complete, in-range setting set. */
 export function normalizeEchoFieldSettings(values) {
   const settings = {};
   for (const [name, spec] of Object.entries(ECHO_FIELD_SETTINGS)) {
@@ -133,7 +127,6 @@ export function normalizeEchoFieldSettings(values) {
   settings.pointMode = POINT_MODES.includes(values?.pointMode) ? values.pointMode : DEFAULT_POINT_MODE;
   settings.airMode = AIR_MODES.includes(values?.airMode) ? values.airMode : DEFAULT_AIR_MODE;
   settings.buildingOcclusion = values?.buildingOcclusion !== false;
-  // The air path already absorbed in the sound (see pathBandGains); it belongs to the sound, not to a dialog control.
   settings.sourceAirMetres = Number.isFinite(values?.sourceAirMetres) ? Math.max(0, Math.min(MAXIMUM_SOURCE_AIR_METRES, values.sourceAirMetres)) : 0;
   return settings;
 }

@@ -3,9 +3,7 @@ import { SOURCE_ONSET_GAIN } from './audio-model.js';
 import { propagationSeconds, soundSpeedMetresPerSecond } from './geo.js';
 import { equalPowerGains, stereoPan } from './spatial.js';
 
-/** Each sampled arrival is spread over three samples so dense walks do not sound granular. */
 const ARRIVAL_KERNEL = [1, .55, .22];
-/** A walk needs a different reflector to continue; this bounds the search before it gives up. */
 const NEXT_REFLECTOR_ATTEMPTS = 5;
 
 function geometrySeed(source, listener, reflectors) {

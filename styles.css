@@ -147,7 +147,6 @@ button {
 button:hover {
   border-color: var(--accent);
 }
-/* Focus is drawn inside the element so the indicator can never overlap a neighbour. */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;

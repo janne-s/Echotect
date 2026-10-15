@@ -8,13 +8,10 @@ import { synthesizeLateReverb } from './late-reverb.js';
 import { equalPowerGains, stereoPan } from './spatial.js';
 import { WAV_SAMPLE_RATE } from './wav.js';
 
-/** One-pole damping applied to every FDN tap before it is fed back. */
 const FDN_DAMPING_COEFFICIENT = .94;
-/** Excitation and output trims that keep the FDN network below full scale without limiting. */
 const FDN_INPUT_GAIN_MINIMUM = .12;
 const FDN_INPUT_GAIN_DENSITY_RANGE = .2;
 const FDN_OUTPUT_GAIN = .16;
-/** Minimum reflector count before a recursive late field exists at all. */
 const LATE_FIELD_MINIMUM_REFLECTORS = 2;
 
 const stereo = length => [new Float32Array(length), new Float32Array(length)];
@@ -182,7 +179,6 @@ export function convolveFft(inputMono, impulse, frameCount) {
   });
 }
 
-/** A sparse impulse, such as a few early reflections under a short sound, is cheapest walked tap by tap. */
 function convolveSparse(inputMono, impulse, frameCount) {
   const output = stereo(frameCount);
   impulse.forEach((channel, channelIndex) => {
@@ -197,14 +193,8 @@ function convolveSparse(inputMono, impulse, frameCount) {
   return output;
 }
 
-/** About how many multiply-adds one complex FFT costs per point and stage, against a tap in the direct loop. */
 const FFT_COST_PER_POINT_AND_STAGE = 6;
 
-/**
- * Convolves by whichever is cheaper: the direct loop costs a multiply-add for every non-zero tap and
- * input sample, the FFT a few per point and stage of its length. Hundreds of filtered reflections
- * under a sound of seconds, such as a thunderclap from Boomtect, take the FFT; a short clap the loop.
- */
 export function convolveCheapest(inputMono, impulse, frameCount) {
   const taps = impulse.reduce((sum, channel) => sum + channel.reduce((count, value) => count + (value ? 1 : 0), 0), 0);
   let fftLength = 1;
@@ -213,7 +203,6 @@ export function convolveCheapest(inputMono, impulse, frameCount) {
   return taps * inputMono.length > fftCost ? convolveFft(inputMono, impulse, frameCount) : convolveSparse(inputMono, impulse, frameCount);
 }
 
-/** Everything a full project export writes. Preview asks for one of these instead. */
 export const EXPORT_OUTPUTS = Object.freeze(['convolutionIr', 'fdnIr', 'wet', 'direct', 'directArrival', 'early', 'late']);
 
 const once = build => {
@@ -221,10 +210,6 @@ const once = build => {
   return () => (value ??= build());
 };
 
-/**
- * Renders the requested outputs and nothing else: a preview that only needs the wet mix never pays
- * for the impulse responses or the stems, and a convolution late field never renders the FDN.
- */
 export async function renderExportAudio({ source, listener, reflectors, heading, settings, distanceMetres, directOccluded = false, inputMono, sampleRate = WAV_SAMPLE_RATE, outputs = EXPORT_OUTPUTS, earlyEvents: suppliedEarlyEvents = null, maximumVisualEvents = 0 }) {
   const wanted = new Set(outputs);
   const spatialAudio = settings.spatialAudio !== false;

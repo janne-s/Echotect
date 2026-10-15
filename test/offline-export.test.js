@@ -80,7 +80,6 @@ test('the cheaper convolution gives the same sound as the direct loop (within 1e
     return out;
   });
   const input = Float32Array.from({ length: 4000 }, (_, index) => Math.sin(index / 5) * .5);
-  // Dense enough that the FFT is cheaper, and sparse enough that the loop is.
   const dense = [0, 1].map(channel => Float32Array.from({ length: 3000 }, (_, index) => (index % 3 === channel ? .01 * Math.cos(index) : 0)));
   const sparse = [Float32Array.from({ length: 3000 }, (_, index) => (index === 10 ? .5 : 0)), new Float32Array(3000)];
   for (const impulse of [dense, sparse]) {

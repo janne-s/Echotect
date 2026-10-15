@@ -5,13 +5,8 @@ import { boundedValue } from './range.js';
 import { validStructure } from './structures.js';
 import { parseTerrainSpace, serializeTerrainSpace } from './terrain-space.js';
 
-/**
- * The editable Echotect project. It is read like every tect document: a missing part takes its
- * default, an unknown one is dropped, and only what is not a project or is broken is refused.
- */
 export const WORKSPACE_PROJECT_FORMAT = 'echotect-workspace';
 export const DEFAULT_PROJECT_NAME = 'Echotect Project';
-/** Heights of the map Source and Listener above the ground; at equal heights paths stay level. */
 export const MAP_HEIGHT_RANGE = Object.freeze({ minimum: .5, maximum: 20000, fallback: 1.7 });
 export const DEFAULT_MAP_PLACEMENT = Object.freeze({
   source: Object.freeze({ latitude: 60.16955, longitude: 24.9369 }),
@@ -25,7 +20,6 @@ export const placementHeights = value => ({
   listener: boundedValue(value?.listener, MAP_HEIGHT_RANGE)
 });
 
-/** A reflector's known height in metres, kept only when it is a usable number. */
 export const reflectorHeight = value => (Number.isFinite(value?.heightMetres) && value.heightMetres > 0 ? { heightMetres: value.heightMetres } : {});
 export const REFLECTION_LEVEL_RANGE = Object.freeze({ minimum: -18, maximum: -1, fallback: -6 });
 

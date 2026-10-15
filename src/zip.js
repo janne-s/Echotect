@@ -56,10 +56,6 @@ export function zipStore(files) {
   return output;
 }
 
-/**
- * The files of a stored (uncompressed) ZIP archive, such as Boomtect's and Echotect's own export
- * packages: [{ name, data }], read from the central directory and checked against their checksums.
- */
 export function unzipStored(bytes) {
   const data = bytesOf(bytes);
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);

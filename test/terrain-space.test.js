@@ -7,7 +7,6 @@ import { buildTerrainField, floorOutline, normalizeTerrainSpace, parseTerrainSpa
 import { at, distance3d, reflectionPathMetres, syntheticSpace, terrainHeights } from './support/terrain.js';
 
 const SPEED_OF_SOUND = 343;
-/** One sample at 48 kHz, as a path length. */
 const ONE_SAMPLE_METRES = SPEED_OF_SOUND / 48000;
 
 const field = (space, source, listener, maxSurfaces = 100000) => buildTerrainField({

@@ -1,7 +1,5 @@
-/** Profiles drawn across the terrain, and samples along each one. */
 const PROFILE_COUNT = 44;
 const PROFILE_SAMPLES = 110;
-/** Relief is exaggerated for display until it spans this share of the terrain's width. */
 const TARGET_RELIEF_SHARE = .3;
 const SECTION_RELIEF_SHARE = .45;
 const MAXIMUM_EXAGGERATION = 20;
@@ -72,10 +70,6 @@ function drawDirect(context, palette, from, to, occluded) {
   context.restore();
 }
 
-/**
- * Frames the terrain block from its floor to its highest point. The horizontal extent is the
- * footprint's circumscribed circle, so the framing does not change while the block turns.
- */
 function spaceFit(frame, view, width, height) {
   const { widthMetres, heightMetres, minimumElevation, maximumElevation, mode, floor } = frame;
   const extent = Math.max(widthMetres, heightMetres);
@@ -90,7 +84,6 @@ function spaceFit(frame, view, width, height) {
   return { extent, vertical, base, middleUp: (top + bottom) / 2, pixels };
 }
 
-/** Zooms toward the canvas point (x, y), keeping the terrain under it in place. */
 export function zoomSpaceView(frame, view, width, height, x, y, factor) {
   const zoom = Math.min(MAXIMUM_ZOOM, Math.max(MINIMUM_ZOOM, view.zoom * factor));
   const { pixels } = spaceFit(frame, view, width, height);
@@ -103,11 +96,6 @@ export function zoomSpaceView(frame, view, width, height, x, y, factor) {
   };
 }
 
-/**
- * The terrain as stacked profiles seen from an orbit, the way GeoFlute shows a wavetable bank.
- * Canyon draws the surface with air above it; Chamber draws the ceiling over the floor and tints
- * the air between them, so the cavity narrowing upward is visible.
- */
 export function drawSpace(canvas, { frame, placement, reflectors = [] }, view, palette) {
   const { context, width, height } = prepareCanvas(canvas);
   const { widthMetres, heightMetres, minimumElevation, mode, floor, scale } = frame;
@@ -177,7 +165,6 @@ export function drawSpace(canvas, { frame, placement, reflectors = [] }, view, p
   return toScreen;
 }
 
-/** Keeps the drawn space so reflection pulses can be animated over it without redrawing the terrain. */
 export function captureSpaceScene(canvas, toScreen) {
   const snapshot = document.createElement('canvas');
   snapshot.width = canvas.width;
@@ -186,7 +173,6 @@ export function captureSpaceScene(canvas, toScreen) {
   return { canvas, snapshot, toScreen };
 }
 
-/** Reflection pulses light the reflectors they arrive from, as the map does. */
 export function paintSpacePulses({ canvas, snapshot, toScreen }, pulses) {
   const context = canvas.getContext('2d');
   const ratio = canvas.width / Math.max(1, canvas.clientWidth);
@@ -203,11 +189,6 @@ export function paintSpacePulses({ canvas, snapshot, toScreen }, pulses) {
   }
 }
 
-/**
- * The vertical section through Source and Listener. Rock is filled; air is left open above the
- * ground in Canyon and tinted between floor and ceiling in Chamber. The scale bar is in acoustic
- * metres, so it shows what the scale setting does to the space.
- */
 export function drawSection(canvas, { frame, placement, section }, palette) {
   const { context, width, height } = prepareCanvas(canvas);
   if (!section) return;

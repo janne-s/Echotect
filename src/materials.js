@@ -1,10 +1,6 @@
-/** Centre frequencies of the seven octave bands every material table covers. */
 const MATERIAL_BAND_HZ = Object.freeze([125, 250, 500, 1000, 2000, 4000, 8000]);
 
-/**
- * Normal-incidence energy absorption of a semi-infinite porous ground, from the Delany–Bazley
- * one-parameter impedance model with an effective flow resistivity in kPa·s/m² (cgs rayls).
- */
+/** Delany–Bazley one-parameter model, normal incidence. */
 export function groundAbsorption(frequencyHz, flowResistivityKpaSecondsPerSquareMetre) {
   const ratio = frequencyHz / flowResistivityKpaSecondsPerSquareMetre;
   const resistance = 1 + 9.08 * ratio ** -.75;
@@ -13,10 +9,7 @@ export function groundAbsorption(frequencyHz, flowResistivityKpaSecondsPerSquare
   return 1 - reflectionSquared;
 }
 
-/**
- * Effective flow resistivity of natural ground in kPa·s/m²: the mean of each range in FHWA TNM
- * ground types (Embleton, Piercy & Daigle 1983, and later measurements).
- */
+/** Mean of each FHWA TNM ground-type range (Embleton, Piercy & Daigle 1983), kPa·s/m². */
 export const GROUND_FLOW_RESISTIVITY = Object.freeze({
   snow: 20,
   forestFloor: 50,
@@ -27,7 +20,6 @@ export const GROUND_FLOW_RESISTIVITY = Object.freeze({
 
 const groundBands = flowResistivity => Object.freeze(MATERIAL_BAND_HZ.map(frequency => groundAbsorption(frequency, flowResistivity)));
 
-/** Energy absorption coefficients at 125, 250, 500, 1k, 2k, 4k, and 8k Hz. */
 export const MATERIAL_ABSORPTION = Object.freeze({
   generic: Object.freeze([.05, .06, .07, .08, .10, .12, .15]),
   concrete: Object.freeze([.02, .02, .03, .03, .03, .04, .07]),

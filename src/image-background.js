@@ -40,7 +40,6 @@ export function imageCoordinates(background) {
   });
 }
 
-/** Keeps placed geometry attached to the image when its scale or rotation changes. */
 export function transformImagePoint(point, previous, next) {
   const local = pointToLocal(previous.center, point);
   const unrotated = rotateLocal(local.x, local.y, -previous.rotationDegrees);

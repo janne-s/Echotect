@@ -1,13 +1,6 @@
 import { distanceMetres, EARTH_RADIUS_METRES, toRadians } from './geo.js';
 import { HANDOFF_FORMAT, readHandoff } from './handoff.js';
 
-/**
- * Taking up a sound handed over by another tect (`handoff.js`), such as a Boomtect microphone: where
- * the Listener and Source go, and how much of the air the sound already holds. Coordinates are WGS84
- * degrees; bearings are compass degrees from north.
- */
-
-/** The point `metres` from `point` along the great circle leaving it at `bearingDegrees`. */
 export function destinationPoint(point, bearingDegrees, metres) {
   const angle = metres / EARTH_RADIUS_METRES;
   const bearing = toRadians(bearingDegrees);
@@ -18,7 +11,6 @@ export function destinationPoint(point, bearingDegrees, metres) {
   return { latitude: nextLatitude * 180 / Math.PI, longitude: ((nextLongitude * 180 / Math.PI + 540) % 360) - 180 };
 }
 
-/** The compass bearing from one point toward another. */
 export function bearingDegrees(from, to) {
   const a = toRadians(from.latitude);
   const b = toRadians(to.latitude);
@@ -28,14 +20,6 @@ export function bearingDegrees(from, to) {
 
 const offsetPoint = (origin, east, north) => (east === 0 && north === 0 ? { ...origin } : destinationPoint(origin, Math.atan2(east, north) * 180 / Math.PI, Math.hypot(east, north)));
 
-/**
- * Where the handoff puts the Listener and Source, from the current ones (with their heights in
- * `current.heightsMetres`), as far as its `placement` lets it. Moving the Listener takes it where
- * the sound was heard, at its height, when a place is named. Moving the Source takes it the way the
- * sound came from, at its distance along the ground and as high above the Listener as the arrival's
- * elevation makes it; without an arrival it keeps its bearing, distance, and height. What is not
- * moved stays as it is. `moved` tells whether the Listener changed place.
- */
 export function handoffPlacement(handoff, current) {
   const { place, listener: heard, arrival, placement } = handoff;
   const moveListener = placement === 'listener-and-source' && Boolean(place);
@@ -56,13 +40,8 @@ export function handoffPlacement(handoff, current) {
   return { listener, source, listenerHeightMetres, sourceHeightMetres: Math.max(0, sourceHeightMetres), moved: moveListener };
 }
 
-/** The air path whose absorption the sound already holds, metres: the distance it came, when it says the air is in it. */
 export const handoffAirMetres = handoff => (handoff.content.includes.includes('air-absorption') ? handoff.arrival?.distanceMetres ?? 0 : 0);
 
-/**
- * The handed-over sounds in a package's files ([{ name, data }]): every JSON file that is a handoff,
- * with the WAV its `audio.file` names. Other files are passed over.
- */
 export function packagedHandoffs(files) {
   const byName = new Map(files.map(file => [file.name, file]));
   const decoder = new TextDecoder();

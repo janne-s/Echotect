@@ -7,7 +7,7 @@ const TRIPLE_POINT_TEMPERATURE_KELVIN = 273.16;
 const REFERENCE_PRESSURE_KPA = 101.325;
 const FILTER_LENGTH = 192;
 
-/** ISO 9613-1 pure-tone atmospheric attenuation coefficient in dB/m. */
+/** ISO 9613-1, pure tone. */
 export function atmosphericAbsorptionDbPerMetre(frequencyHz, { temperatureCelsius, relativeHumidityPercent, pressureKpa }) {
   const temperatureKelvin = temperatureCelsius + 273.15;
   const temperatureRatio = temperatureKelvin / REFERENCE_TEMPERATURE_KELVIN;
@@ -52,11 +52,6 @@ export function geometryReferencePathMetres(directPathMetres, firstReflectionPat
   return positive.length ? Math.min(...positive) : 1;
 }
 
-/**
- * Broadband reflector level, material absorption, and atmospheric absorption for one path. A sound
- * whose air absorption over `settings.sourceAirMetres` is already in it, such as one handed over by
- * Boomtect, is absorbed only over the rest of each path, so the air is counted once.
- */
 export function pathBandGains({ pathMetres, referencePathMetres = 1, reflectors = [], settings = {}, sourceGain = 1 }) {
   const spreadingAmount = settings.geometricSpreadingAmount ?? 1;
   const spreading = sourceGain * Math.min(1, referencePathMetres / Math.max(1, pathMetres)) ** spreadingAmount;
@@ -117,7 +112,6 @@ function bandpass(sampleRate, frequency) {
   return { b0: alpha / a0, b1: 0, b2: -alpha / a0, a1: -2 * cosine / a0, a2: (1 - alpha) / a0 };
 }
 
-/** Causal minimum-delay filter approximating octave-band path gains with shelving sections. */
 export function pathFilter(bandGains, sampleRate, length = FILTER_LENGTH) {
   let impulse = new Float32Array(length);
   impulse[0] = bandGains[0];
@@ -133,7 +127,6 @@ export function pathFilter(bandGains, sampleRate, length = FILTER_LENGTH) {
 export const bandLevelDb = bandGains => 20 * Math.log10(Math.max(1e-12, bandGains[OCTAVE_BAND_HZ.indexOf(1000)]));
 export const maximumBandLevelDb = bandGains => 20 * Math.log10(Math.max(1e-12, ...bandGains));
 
-/** Recombines seven octave-band impulse streams into one broadband channel. */
 export function renderOctaveBandImpulse(bandImpulses, sampleRate) {
   const output = new Float32Array(bandImpulses[0].length);
   const activeBands = OCTAVE_BAND_HZ.reduce((count, frequency) => frequency < sampleRate * .45 ? count + 1 : count, 0);

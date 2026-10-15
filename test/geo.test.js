@@ -94,7 +94,6 @@ test('in the map space, heights lift a path into a straight line through vertica
   assert.equal(open.blocked, false);
   assert.equal(reflectionPathMetrics(source, listener, [{ ...wall, heightMetres: 20 }]).blocked, false);
   assert.equal(reflectionPathMetrics(source, listener, [{ ...wall, heightMetres: 10 }]).blocked, true);
-  // Without heights, and in another space's distance, nothing is lifted.
   const flat = reflectionPathMetrics({ ...source, heightMetres: undefined }, listener, [{ ...wall, heightMetres: 1 }]);
   assert.ok(Math.abs(flat.pathMetres - horizontal) < 1e-6);
   assert.equal(flat.blocked, false);

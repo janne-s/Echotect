@@ -3,7 +3,6 @@ import { terrainMetresPerDegree } from '../../src/terrain-tiles.js';
 
 export const CENTRE = Object.freeze({ latitude: 46, longitude: 7 });
 
-/** A terrain capture sampled from `elevation(x, y)` in metres east and north of CENTRE. */
 export function syntheticCapture(elevation, { columns = 64, rows = 64, widthMetres = 640, heightMetres = 640 } = {}) {
   const values = new Float32Array(columns * rows);
   for (let row = 0; row < rows; row += 1) {
@@ -24,7 +23,6 @@ export function syntheticSpace(elevation, gridOptions, overrides = {}) {
   return { ...createTerrainSpace(syntheticCapture(elevation, gridOptions)), ...overrides };
 }
 
-/** Complete per-mode terrain heights with one mode set to the requested test values. */
 export function terrainHeights(source, listener = source, mode = 'exterior') {
   return {
     heightsMetres: {
@@ -35,7 +33,6 @@ export function terrainHeights(source, listener = source, mode = 'exterior') {
   };
 }
 
-/** A map point `x` metres east and `y` metres north of CENTRE, at scale 1. */
 export const at = (x, y) => ({
   latitude: CENTRE.latitude + y / terrainMetresPerDegree(CENTRE.latitude).north,
   longitude: CENTRE.longitude + x / terrainMetresPerDegree(CENTRE.latitude).east

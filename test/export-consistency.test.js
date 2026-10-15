@@ -49,7 +49,6 @@ test('manifest export durations match the rendered WAV lengths', async () => {
 });
 
 test('every declared arrival is rendered at the declared time and level', async () => {
-  // One reflector cannot produce a recursive late field, so the response holds early arrivals only.
   const reflectors = [{ id: 'r1', latitude: 60.0005, longitude: 24.0004, levelDb: -6 }];
   const manifest = manifestFor(reflectors);
   const audio = await renderFor(reflectors);
