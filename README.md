@@ -28,6 +28,8 @@ and project manifests.
 settings and session search cache, then reloads after confirmation. Boomtect’s
 data and downloaded files are kept. Reset is available even if the main
 application fails to start. **Recover audio** restarts only the audio engine.
+Interrupted audition stops; Play starts it again. Audio preparation can be
+cancelled, and startup failures appear beside the playback controls.
 
 Structures are editable polygons in Map and Image modes. Their edges provide
 reflective surfaces to the Echo field.

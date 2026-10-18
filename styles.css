@@ -624,6 +624,20 @@ input[type="range"]:focus-visible {
   grid-template-columns: 1.15fr 1fr 0.9fr;
   gap: 6px;
 }
+.audio-status {
+  display: block;
+  color: var(--ink);
+  font-size: 12px;
+}
+.audio-status.error {
+  color: var(--accent);
+}
+.audio-status[hidden] {
+  display: none;
+}
+#play-button[aria-busy="true"] {
+  cursor: pointer;
+}
 .primary {
   color: #111;
   background: var(--accent);

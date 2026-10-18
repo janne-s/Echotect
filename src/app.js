@@ -1,5 +1,6 @@
 import { createDirectArrivalEvent, createEarlyArrivalEvents, monitorArrivalPlan } from './arrivals.js';
 import { SOURCE_ONSET_GAIN } from './audio-model.js';
+import { createAudioLifecycle } from './audio-lifecycle.js';
 import { DEFAULT_ECHO_FIELD_SETTINGS, ECHO_FIELD_SETTINGS, normalizeEchoFieldSettings } from './echo-field-settings.js';
 import { buildingHeightMetres, edgeKey, reflectionField, reflectorVisibilityGraph, wallReflectionCandidate } from './echo-geometry.js';
 import { exportFrameLayout } from './export-layout.js';
@@ -60,9 +61,6 @@ const BASEMAP_RASTER_PAINT = Object.freeze({
 const MAXIMUM_REFLECTION_PULSES = 4800;
 const MAXIMUM_VISUALIZED_PATHS = 800;
 const MAXIMUM_LATE_REFLECTION_PULSES = 4000;
-const AUDIO_RECOVERY_OPERATION_TIMEOUT_MS = 1200;
-const AUDIO_RECOVERY_CLOCK_TEST_MS = 250;
-const AUDIO_RECOVERY_MINIMUM_CLOCK_ADVANCE_SECONDS = .05;
 const TERRAIN_IMAGE_SOURCE_ID = 'terrain-hillshade';
 const TERRAIN_BUILD_DELAY_MS = 80;
 const TERRAIN_HILLSHADE_OPACITY = .8;
@@ -213,7 +211,6 @@ const state = storedWorkspace() ?? defaultWorkspace();
 state.settings.echoField = { ...state.settings.echoField, sourceAirMetres: 0 };
 state.buildingsVisible = false;
 let activeTool = null;
-let audioContext;
 let importedAudioBuffer = null;
 let importedAudioName = null;
 let importedAudioAirMetres = 0;
@@ -221,11 +218,17 @@ let defaultHandclapBuffer = null;
 let audioSourceRevision = 0;
 let monitorRenderCache = null;
 let renderedPlayback = null;
-let renderingPlayback = false;
-let activeRender = null;
 let activePlayback = null;
 let playbackProgressTimer = null;
 let reflectionPulseAnimationFrame = null;
+const audio = createAudioLifecycle({
+  onChange: () => syncPlayButton(),
+  onInterrupted() {
+    stopPlayback();
+    showAudioStatus('Audio interrupted', true);
+  }
+});
+window.addEventListener('app-reset', () => { stopPlayback(); audio.dispose(); });
 let lastSearchAt = 0;
 let hoveredBuildingEdge = null;
 let automaticReflectors = state.automaticReflectors;
@@ -352,6 +355,8 @@ const pointFromLngLat = lngLat => ({ latitude: lngLat.lat, longitude: lngLat.lng
 let workspaceSaveTimer = null;
 
 function scheduleSave() {
+  const task = audio.pending();
+  if (task?.kind === 'play' && task.key !== playbackKey()) { task.cancel(); showAudioStatus(''); }
   syncPlayButton();
   clearTimeout(workspaceSaveTimer);
   workspaceSaveTimer = setTimeout(saveWorkspace, WORKSPACE_SAVE_DELAY_MS);
@@ -2577,59 +2582,7 @@ $('#panning-mode').addEventListener('change', event => {
 });
 
 function getAudioContext() {
-  audioContext ??= new AudioContext();
-  return audioContext;
-}
-
-const waitMilliseconds = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
-
-function withTimeout(promise, milliseconds, operation) {
-  let timer;
-  return Promise.race([
-    Promise.resolve(promise),
-    new Promise((resolve, reject) => {
-      timer = setTimeout(() => reject(new Error(`${operation} timed out.`)), milliseconds);
-    })
-  ]).finally(() => clearTimeout(timer));
-}
-
-async function audioClockAdvances(context) {
-  if (context.state === 'closed') return false;
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  gain.gain.value = 0;
-  oscillator.connect(gain).connect(context.destination);
-  const startedAt = context.currentTime;
-  oscillator.start();
-  try {
-    await waitMilliseconds(AUDIO_RECOVERY_CLOCK_TEST_MS);
-    return context.state === 'running'
-      && context.currentTime - startedAt >= AUDIO_RECOVERY_MINIMUM_CLOCK_ADVANCE_SECONDS;
-  } finally {
-    try { oscillator.stop(); } catch {}
-    oscillator.disconnect();
-    gain.disconnect();
-  }
-}
-
-async function cycleAudioContext(context) {
-  if (context.state === 'closed') return false;
-  try {
-    await withTimeout(context.suspend(), AUDIO_RECOVERY_OPERATION_TIMEOUT_MS, 'Audio suspend');
-    await withTimeout(context.resume(), AUDIO_RECOVERY_OPERATION_TIMEOUT_MS, 'Audio resume');
-    return await audioClockAdvances(context);
-  } catch {
-    return false;
-  }
-}
-
-async function closeAudioContext(context) {
-  if (!context || context.state === 'closed') return;
-  try {
-    await withTimeout(context.close(), AUDIO_RECOVERY_OPERATION_TIMEOUT_MS, 'Audio close');
-  } catch {
-    // A stuck WebKit audio process may never settle close(); recovery must still continue.
-  }
+  return audio.get();
 }
 
 async function loadDefaultHandclap(context) {
@@ -2644,13 +2597,31 @@ async function loadDefaultHandclap(context) {
 function syncPlayButton() {
   const button = $('#play-button');
   if (!button) return;
-  if (activePlayback) button.textContent = 'Stop';
-  else if (renderingPlayback) button.textContent = 'Cancel';
+  const task = audio.pending();
+  if (task?.kind === 'play') button.textContent = 'Cancel';
+  else if (activePlayback) button.textContent = 'Stop';
   else if (state.settings.playbackMode === 'rendered') button.textContent = currentRender() ? 'Play render' : 'Render';
   else button.textContent = 'Play impulse';
-  button.disabled = !renderingPlayback && !propagation().valid;
-  if (renderingPlayback) button.setAttribute('aria-busy', 'true');
+  button.disabled = task?.kind === 'recover' || (!activePlayback && !task && !propagation().valid);
+  if (task?.kind === 'play') button.setAttribute('aria-busy', 'true');
   else button.removeAttribute('aria-busy');
+  const recovery = $('#reset-audio');
+  recovery.disabled = task?.kind === 'recover';
+  recovery.textContent = task?.kind === 'recover' ? '' : 'Recover audio';
+  if (task?.kind === 'recover') {
+    recovery.setAttribute('aria-busy', 'true');
+    recovery.setAttribute('aria-label', 'Recovering audio');
+  } else {
+    recovery.removeAttribute('aria-busy');
+    recovery.removeAttribute('aria-label');
+  }
+}
+
+function showAudioStatus(message, error = false) {
+  const output = $('#audio-status');
+  output.textContent = message;
+  output.hidden = !message;
+  output.classList.toggle('error', error);
 }
 
 function clearPlaybackProgress() {
@@ -2694,7 +2665,7 @@ function hrtfMonitorDurationSeconds(data, context) {
   return duration;
 }
 
-function stopPlayback() {
+function clearActivePlayback() {
   if (!activePlayback) return;
   const playback = activePlayback;
   activePlayback = null;
@@ -2706,8 +2677,14 @@ function stopPlayback() {
   syncPlayButton();
 }
 
+function stopPlayback() {
+  clearActivePlayback();
+  audio.cancel();
+}
+
 function beginPlayback(context, sources, startTime, durationSeconds) {
-  stopPlayback();
+  clearActivePlayback();
+  audio.markPlaying(context);
   const delaySeconds = Math.max(0, startTime - context.currentTime);
   const playback = { context, sources, startTime, durationSeconds };
   activePlayback = playback;
@@ -2719,6 +2696,7 @@ function beginPlayback(context, sources, startTime, durationSeconds) {
     activePlayback = null;
     clearPlaybackProgress();
     clearReflectionPulses();
+    audio.release(context);
     syncPlayButton();
   };
   sources.forEach(source => source.addEventListener('ended', sourceEnded, { once: true }));
@@ -2727,6 +2705,8 @@ function beginPlayback(context, sources, startTime, durationSeconds) {
 }
 
 function invalidateRenderedPlayback() {
+  const task = audio.pending();
+  if (task?.kind === 'play') { task.cancel(); showAudioStatus(''); }
   renderedPlayback = null;
   syncPlayButton();
 }
@@ -2898,6 +2878,7 @@ function monitorRenderKey(placement, reflectors, outputs) {
 
 function changeAudioSource() {
   stopPlayback();
+  showAudioStatus('');
   audioSourceRevision += 1;
   monitorRenderCache = null;
   invalidateRenderedPlayback();
@@ -3032,48 +3013,41 @@ function renderHrtfWet(inputMono, late) {
 }
 
 $('#play-button').addEventListener('click', async () => {
-  const button = $('#play-button');
-  if (activePlayback) {
+  if (audio.pending()?.kind === 'recover') return;
+  if (activePlayback || audio.pending()) {
     stopPlayback();
-    return;
-  }
-  if (renderingPlayback) {
-    activeRender = null;
-    renderingPlayback = false;
-    syncPlayButton();
+    showAudioStatus('');
     return;
   }
   if (!propagation().valid) return;
-  if (state.settings.playbackMode === 'rendered' && currentRender()) {
-    const context = getAudioContext();
-    await context.resume();
-    const durationSeconds = cutoffDurationSeconds(renderedPlayback.channels, WAV_SAMPLE_RATE, renderedPlayback.inputMono);
-    const startTime = playbackStartTime(context);
-    const source = playRenderedChannels(context, renderedPlayback.channels, startTime);
-    beginPlayback(context, [source], startTime, durationSeconds);
-    animateReflectionPulses(renderedPlayback.earlyEvents, renderedPlayback.reflectors, renderedPlayback.reflectionEvents, durationSeconds);
-    return;
-  }
   const rendering = state.settings.playbackMode === 'rendered';
   const key = playbackKey();
-  const render = {};
-  activeRender = render;
-  if (rendering) {
-    renderingPlayback = true;
-    syncPlayButton();
-  } else {
-    button.disabled = true;
-    button.setAttribute('aria-busy', 'true');
-  }
-  await new Promise(resolve => requestAnimationFrame(resolve));
+  const cached = rendering ? currentRender() : null;
+  const task = audio.begin();
+  task.key = key;
+  const current = () => task.current() && key === playbackKey();
+  showAudioStatus(cached || !rendering ? 'Starting audio…' : 'Rendering audio…');
   try {
-    const context = getAudioContext();
-    await context.resume();
-    const data = await monitorPlaybackData(context, rendering);
-    if (key !== playbackKey() || activeRender !== render) return;
+    await task.ready;
+    if (!current()) return;
+    const context = task.context;
+    if (context.state !== 'running') throw new Error('Audio is interrupted. Try Play or Recover audio.');
+    if (cached) {
+      const durationSeconds = cutoffDurationSeconds(cached.channels, WAV_SAMPLE_RATE, cached.inputMono);
+      const startTime = playbackStartTime(context);
+      const source = playRenderedChannels(context, cached.channels, startTime);
+      beginPlayback(context, [source], startTime, durationSeconds);
+      animateReflectionPulses(cached.earlyEvents, cached.reflectors, cached.reflectionEvents, durationSeconds);
+      task.finish();
+      showAudioStatus('');
+      return;
+    }
+    const data = await task.wait(monitorPlaybackData(context, rendering));
+    if (!current()) return;
     if (rendering) {
-      const channels = await renderedMonitorChannels(data);
-      if (key === playbackKey() && activeRender === render) renderedPlayback = {
+      const channels = await task.wait(renderedMonitorChannels(data));
+      if (!current()) return;
+      renderedPlayback = {
         key,
         channels,
         earlyEvents: data.earlyEvents,
@@ -3095,12 +3069,16 @@ $('#play-button').addEventListener('click', async () => {
       beginPlayback(context, [source], startTime, durationSeconds);
       animateReflectionPulses(data.earlyEvents, data.reflectors, data.rendered.reflectionEvents, durationSeconds);
     }
+    task.finish();
+    if (rendering) audio.release(context);
+    showAudioStatus('');
   } catch (error) {
-    if (error?.name !== 'AbortError') console.error(error);
+    if (task.current()) {
+      stopPlayback();
+      showAudioStatus(`Playback failed: ${error.message}`, true);
+    }
   } finally {
-    if (rendering && activeRender === render) renderingPlayback = false;
-    if (activeRender === render) activeRender = null;
-    syncPlayButton();
+    if (task.current()) { task.cancel(); showAudioStatus(''); }
   }
 });
 
@@ -3419,51 +3397,25 @@ $('#export-form').addEventListener('submit', async event => {
   }
 });
 
-$('#reset-audio').addEventListener('click', async event => {
-  const button = event.currentTarget;
-  const previousContext = audioContext;
+$('#reset-audio').addEventListener('click', async () => {
+  if (audio.pending()?.kind === 'recover') return;
   stopPlayback();
   audioSourceRevision += 1;
   monitorRenderCache = null;
   defaultHandclapBuffer = null;
   invalidateRenderedPlayback();
-  audioContext = null;
-  button.disabled = true;
-  button.setAttribute('aria-busy', 'true');
-  button.setAttribute('aria-label', 'Recovering audio');
-  button.textContent = '';
-
-  let replacementContext = null;
-  let resumeReplacement = null;
-  const closePrevious = closeAudioContext(previousContext);
+  const task = audio.begin({ kind: 'recover', fresh: true });
+  showAudioStatus('Recovering audio…');
   try {
-    // Create and resume synchronously from the click so Safari retains the user activation.
-    replacementContext = new AudioContext();
-    audioContext = replacementContext;
-    resumeReplacement = replacementContext.resume();
-
-    await closePrevious;
-    try {
-      await withTimeout(resumeReplacement, AUDIO_RECOVERY_OPERATION_TIMEOUT_MS, 'Audio resume');
-    } catch {
-      // The state and clock test below is authoritative; Safari promises can stall independently.
-    }
-    let recovered = await audioClockAdvances(replacementContext);
-    if (!recovered) recovered = await cycleAudioContext(replacementContext);
-    if (!recovered) throw new Error(`Audio clock did not recover (state: ${replacementContext.state}).`);
+    await audio.recover(task);
+    if (task.finish()) showAudioStatus('Audio ready');
   } catch (error) {
-    console.warn('Audio recovery failed.', error, {
-      previousState: previousContext?.state,
-      replacementState: replacementContext?.state
-    });
-    if (audioContext === replacementContext) audioContext = null;
-    await closeAudioContext(replacementContext);
-    window.alert('The browser audio engine could not be restarted. Open Echotect in a new window and try again.');
+    if (task.current()) {
+      task.cancel();
+      showAudioStatus(`Audio recovery failed: ${error.message}`, true);
+    }
   } finally {
-    button.disabled = false;
-    button.removeAttribute('aria-busy');
-    button.removeAttribute('aria-label');
-    button.textContent = 'Recover audio';
+    task.cancel();
   }
 });
 
