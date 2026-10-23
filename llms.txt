@@ -6,7 +6,7 @@ Echotect runs entirely in the browser, with no account and no server of its own.
 
 Audio exports are stereo, 48 kHz, 32-bit float, with no normalization, clipping, or limiter: a sampled-paths IR, a feedback-network IR, the wet render, the wet render through the browser's HRTF (direct sound and early arrivals binaural, late field stereo; it differs between browsers), and aligned direct, early, and late stems. The project manifest (`"format": "echotect-project"`) holds the geometry, the render settings, and every derived path with its delay, level, octave-band gains, and arrival direction, so the stereo image can be rebuilt elsewhere. An editable project saved with Save is `"format": "echotect-workspace"`.
 
-A sound from Boomtect arrives with a `tect.handoff` JSON that may move the Listener and Source to where it was heard; the sound already holds the air along that distance. A handoff reader fills in missing fields with defaults and never refuses an older or newer version.
+A sound from Boomtect or Rumbletect arrives with a `tect.handoff` JSON that may move the Listener and Source to where it was heard; the sound already holds the air along that distance. A handoff reader fills in missing fields with defaults and never refuses an older or newer version.
 
 ## Docs
 
@@ -16,9 +16,10 @@ A sound from Boomtect arrives with a `tect.handoff` JSON that may move the Liste
 ## Formats
 
 - [Project manifest](https://github.com/janne-s/Echotect/blob/main/src/project-manifest.js): the exported `echotect-project` JSON
-- [Handoff](https://github.com/janne-s/Echotect/blob/main/src/handoff.js): the `tect.handoff` format shared with Boomtect
+- [Handoff](https://github.com/janne-s/Echotect/blob/main/src/handoff.js): the `tect.handoff` format shared with Boomtect and Rumbletect
 
 ## Optional
 
 - [Echotect Field](https://github.com/janne-s/Echotect/blob/main/max-for-live/README.md): a Max for Live device that rebuilds the manifest's direct sound and reflection delays in Ableton Live; functional but rudimentary
 - [Boomtect](https://janne-s.github.io/Boomtect/llms.txt): thunder, blasts, and sonic booms simulated from their physics
+- [Rumbletect](https://janne-s.github.io/Rumbletect/llms.txt): the continuous sound of jets, airliners, rockets, and volcanic eruptions
