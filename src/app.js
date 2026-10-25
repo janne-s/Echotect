@@ -3163,7 +3163,7 @@ $('#audio-file').addEventListener('change', async event => {
   }
 });
 
-const TECT_ORIGINS = Object.freeze(['https://janne-s.github.io', 'http://127.0.0.1:8000', 'http://localhost:8000', 'http://127.0.0.1:8002', 'http://localhost:8002']);
+const TECT_ORIGINS = Object.freeze(['https://janne-s.github.io', ...[8000, 8002].flatMap(port => [...new Set(['127.0.0.1', 'localhost', location.hostname])].map(host => `http://${host}:${port}`))]);
 window.addEventListener('message', event => {
   if (!TECT_ORIGINS.includes(event.origin) || !event.source || typeof event.data?.type !== 'string') return;
   const answer = message => event.source.postMessage(message, event.origin);
