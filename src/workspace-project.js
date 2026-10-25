@@ -1,3 +1,4 @@
+import { randomId } from './random-id.js';
 import { normalizeEchoFieldSettings } from './echo-field-settings.js';
 import { isValidCoordinate } from './geo.js';
 import { MATERIAL_LABELS } from './materials.js';
@@ -144,7 +145,7 @@ export function parseWorkspaceProject(text) {
     : { ...mapPlacement.listener, zoom: 15 };
   return {
     project: {
-      id: typeof value.project?.id === 'string' && value.project.id ? value.project.id : crypto.randomUUID(),
+      id: typeof value.project?.id === 'string' && value.project.id ? value.project.id : randomId(),
       name: typeof value.project?.name === 'string' && value.project.name.trim() ? value.project.name.trim() : DEFAULT_PROJECT_NAME,
       createdAt: typeof value.project?.createdAt === 'string' ? value.project.createdAt : new Date().toISOString()
     },

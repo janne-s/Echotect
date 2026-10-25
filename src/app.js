@@ -9,6 +9,7 @@ import { IMAGE_OPACITY_RANGE, IMAGE_WIDTH_RANGE, imageCoordinates, transformImag
 import { effectiveMaterial, MATERIAL_LABELS, normalizeFacadeMaterial } from './materials.js';
 import { addStereo, renderExportAudio, resampleToMono } from './offline-export.js';
 import { createProjectManifest, validateProjectManifest } from './project-manifest.js';
+import { randomId } from './random-id.js';
 import { boundedValue } from './range.js';
 import { hrtfPosition } from './spatial.js';
 import { createRectangleVertices, insertVertex, moveEdgeVertices, pointInStructureSpace, removeVertex, structureRing, structureVertices, structureWalls, validStructure } from './structures.js';
@@ -85,7 +86,7 @@ function storedBasemap() {
   }
 }
 
-const newProject = () => ({ id: crypto.randomUUID(), name: DEFAULT_PROJECT_NAME, createdAt: new Date().toISOString() });
+const newProject = () => ({ id: randomId(), name: DEFAULT_PROJECT_NAME, createdAt: new Date().toISOString() });
 
 function defaultWorkspace() {
   return {
@@ -93,7 +94,7 @@ function defaultWorkspace() {
     activeSpace: 'map',
     mapPlacement: copiedPlacement(DEFAULT_MAP_PLACEMENT),
     terrainPlacements: null,
-    reflectors: [{ id: crypto.randomUUID(), latitude: 60.1721, longitude: 24.9384, levelDb: REFLECTION_LEVEL_RANGE.fallback, material: 'inherit' }],
+    reflectors: [{ id: randomId(), latitude: 60.1721, longitude: 24.9384, levelDb: REFLECTION_LEVEL_RANGE.fallback, material: 'inherit' }],
     structures: [],
     terrainSpace: null,
     echoFieldEnabled: false,
@@ -159,7 +160,7 @@ function storedTerrainPlacements(value) {
 function storedReflectors(values) {
   if (!Array.isArray(values)) return [];
   return values.filter(isValidCoordinate).map(reflector => ({
-    id: typeof reflector.id === 'string' ? reflector.id : crypto.randomUUID(),
+    id: typeof reflector.id === 'string' ? reflector.id : randomId(),
     latitude: reflector.latitude,
     longitude: reflector.longitude,
     levelDb: boundedValue(reflector.levelDb, REFLECTION_LEVEL_RANGE),
@@ -1699,7 +1700,7 @@ map.on('click', event => {
       ?? building.properties.material
     );
     state.reflectors.push({
-      id: crypto.randomUUID(),
+      id: randomId(),
       levelDb: state.globalReflectionLevelDb,
       material: normalizeFacadeMaterial(facadeMaterial) ?? 'inherit',
       ...(wall?.point ?? point),
@@ -2239,7 +2240,7 @@ $('#create-structure').addEventListener('click', () => {
   const center = map.getCenter();
   const size = defaultStructureSize();
   const structure = {
-    id: crypto.randomUUID(),
+    id: randomId(),
     center: { latitude: center.lat, longitude: center.lng },
     verticesMetres: createRectangleVertices(size, size),
     rotationDegrees: imageBackground?.rotationDegrees ?? 0,
