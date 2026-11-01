@@ -79,7 +79,6 @@ export function distanceMetres(a, b) {
   return 2 * EARTH_RADIUS_METRES * Math.asin(Math.sqrt(haversine));
 }
 
-/** Mirrored in vertical reflectors a lifted path unfolds into a straight line. */
 const isLifted = (source, listener, distance) => distance === distanceMetres
   && Number.isFinite(source?.heightMetres) && Number.isFinite(listener?.heightMetres);
 
