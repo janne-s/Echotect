@@ -310,6 +310,13 @@ map.once('load', () => {
 });
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
 
+const mapLostNotice = document.getElementById('map-lost');
+map.on('webglcontextlost', () => { mapLostNotice.hidden = false; });
+map.on('webglcontextrestored', () => { mapLostNotice.hidden = true; });
+for (const type of ['mouseover', 'mouseout', 'mousemove', 'mousedown', 'mouseup', 'click', 'dblclick', 'wheel', 'contextmenu', 'touchstart', 'touchmove', 'touchend']) {
+  mapContainer.addEventListener(type, event => { if (!mapLostNotice.hidden) event.stopPropagation(); }, true);
+}
+
 function createBasemapToggle() {
   const button = document.createElement('button');
   button.className = 'basemap-button';

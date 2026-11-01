@@ -185,6 +185,20 @@ input[type="range"]:focus-visible {
   overflow: hidden;
   pointer-events: none;
 }
+.map-lost {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--ink);
+  background: var(--panel);
+  text-align: center;
+}
+.map-lost[hidden] {
+  display: none;
+}
 .map-tools {
   position: absolute;
   z-index: 2;
